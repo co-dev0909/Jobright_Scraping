@@ -1,4 +1,5 @@
-# .NET build outputs and local Windows publishing artifacts
-**/bin/
-**/obj/
+# Python caches and local executable builds
+__pycache__/
+*.py[cod]
+kula-app/.build-venv/
 kula-app/artifacts/

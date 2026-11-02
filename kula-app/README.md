@@ -4,26 +4,49 @@ Kula APP receives job links from the Jobright extension and displays them in a W
 
 ## Download and run
 
-In the repository's GitHub **Actions** tab, open the latest successful **Build Kula APP for Windows** run and download **KulaAPP-windows-x64** from its artifacts. Extract the ZIP, run **KulaAPP.exe**, and load the included **extension** folder at `chrome://extensions`. The executable includes its .NET runtime; no SDK installation is needed to run it.
+In the repository's GitHub **Actions** tab, open the latest successful **Build Kula APP for Windows** run and download **KulaAPP-windows-x64** from its artifacts. Extract the ZIP, run **KulaAPP.exe**, and load the included **extension** folder at `chrome://extensions`.
+
+The app is now written in Python. The single executable bundles Python and Tcl/Tk, so **you do not need to install Python, .NET, or any SDK to run it**. No administrator setup is required. Existing extension connections and saved pairing keys continue to work.
 
 Artifacts become available only after the workflow finishes successfully. They expire after 30 days; a new run creates a fresh package. If GitHub Actions is disabled or you prefer to build locally, use the steps below.
 
-## Build locally
+## About the executable
 
-Install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) to build the app. From PowerShell in this repository:
+GitHub Actions builds the executable from this repository, tests the receiver and UI, and smoke-tests the packaged executable before uploading it. The package includes **SHA256SUMS.txt** for checking the executable's hash. This is an unsigned app: Windows may show an unknown-publisher or SmartScreen warning. Bundling Python does not provide code signing or a guarantee that Windows will trust the app. Do not disable Windows security protections to run it.
+
+The list stays in memory. The app writes only its pairing key under `%LOCALAPPDATA%\KulaAPP` and listens for authenticated transfers on this computer. PyInstaller's one-file executable extracts its bundled runtime to a temporary directory while it runs.
+
+## Run or build from source (developers only)
+
+Building is optional. Developers need Python 3.12 with Tkinter; users of the downloaded executable need no runtime installation. Run the source directly:
+
+```powershell
+python ./kula-app/kula_app.py
+```
+
+Or build a standalone Windows executable:
 
 ```powershell
 ./kula-app/publish-windows.ps1
 ./kula-app/artifacts/win-x64/KulaAPP.exe
 ```
 
-If local PowerShell policy prevents running a script, use the equivalent build command directly:
+The build script creates an isolated Python environment, installs the pinned PyInstaller build tool, and bundles the app. If local PowerShell policy prevents running a script, use these commands directly:
 
 ```powershell
-dotnet publish ./kula-app/src/Kula.App/Kula.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o ./kula-app/artifacts/win-x64
+python -m venv ./kula-app/.build-venv
+./kula-app/.build-venv/Scripts/python.exe -m pip install -r ./kula-app/requirements-build.txt
+./kula-app/.build-venv/Scripts/python.exe -m PyInstaller --onefile --windowed --noupx --clean --noconfirm --name KulaAPP --distpath ./kula-app/artifacts/win-x64 --workpath ./kula-app/artifacts/build --specpath ./kula-app/artifacts/spec ./kula-app/kula_app.py
 ```
 
-The published Windows x64 executable includes its .NET runtime. The SDK is needed to build it, but is not needed on a computer that only runs the published executable. No administrator setup or browser native-host registration is required.
+Run the receiver/pairing tests and the UI smoke test:
+
+```powershell
+python -m unittest discover -s kula-app/tests -p "test_*.py" -v
+python ./kula-app/kula_app.py --smoke-test
+```
+
+The UI smoke test needs a graphical session. Windows executables must be built on Windows; a Linux build produces a Linux executable.
 
 ## Connect the extension
 

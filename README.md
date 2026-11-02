@@ -40,7 +40,7 @@ The download uses your open Jobright tab. No new permissions, backend, or accoun
 
 Kula APP is a Windows x64 desktop app included in this repository. Each successful send **clears the previous list and replaces it with the newly collected links**. Invalid batches and failed collections leave the previous list in place. Empty results do not clear the app.
 
-1. Build and open **KulaAPP.exe** using the [Windows app instructions](kula-app/README.md). The .NET 10 SDK is needed to build it; the published executable includes its own runtime.
+1. Download and open **KulaAPP.exe** using the [Windows app instructions](kula-app/README.md). The Python-based executable includes everything needed to run; no Python, .NET, or SDK installation is required.
 2. Reload the updated extension at `chrome://extensions`, accept the new local connection permission if prompted, and refresh Jobright.
 3. In Kula APP, click **Copy pairing key**. In the extension popup, open **Connect to Kula APP**, paste the key, and click **Save connection**. Do this once per browser profile.
 4. Choose the filters you want on Jobright. Keep Kula APP open, click **Send to Kula APP**, and keep the popup open while it collects and sends links.
@@ -91,11 +91,12 @@ On Linux, use Node.js 22 or newer and a Chromium-compatible browser:
 EDGE_PATH=/usr/bin/chromium node --test tests/browser.test.mjs
 ```
 
-Run the connection-worker tests and the portable .NET receiver integration tests:
+Run the connection-worker tests, the Python receiver tests, and the actual worker-to-app integration test:
 
 ```bash
 node --test tests/kula-bridge.test.mjs
-dotnet run --project kula-app/tests/Kula.Bridge.Tests/Kula.Bridge.Tests.csproj -c Release
+python -m unittest discover -s kula-app/tests -p "test_*.py" -v
+node --test tests/kula-python-integration.test.mjs
 ```
 
-The browser tests use representative local pages rather than your Jobright account, including dynamically loaded and virtualized job lists and popup download/send flows. Receiver integration tests exercise real local HTTP transfers, validation, replacement, and acknowledgement behavior. The Windows app can be cross-built on Linux; its actual GUI needs verification on Windows.
+The browser tests use representative local pages rather than your Jobright account, including dynamically loaded and virtualized job lists and popup download/send flows. Receiver integration tests exercise real local HTTP transfers, validation, replacement, and acknowledgement behavior. Kula APP uses Python's standard library at runtime, with PyInstaller used only for packaging. GitHub Actions builds and smoke-tests the Windows executable; Linux builds are useful for local validation but do not produce a Windows executable.
