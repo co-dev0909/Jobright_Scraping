@@ -1,0 +1,4 @@
+/* Removing this marker restores the site's original layout and styles. */
+[data-jobright-apply-filter-hidden="true"] {
+  display: none !important;
+}

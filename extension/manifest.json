@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Jobright Apply Filter",
+  "version": "1.1.0",
+  "description": "Hide APPLY NOW jobs and duplicate Jobright cards, keeping one eligible copy of each job.",
+  "permissions": ["storage"],
+  "action": {
+    "default_title": "Jobright Apply Filter",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://jobright.ai/*", "https://www.jobright.ai/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

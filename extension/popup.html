@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Jobright Apply Filter</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="23" height="23" fill="none">
+          <path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h1>Jobright Apply Filter</h1>
+      <p class="intro">Keep your job list focused and remove repeat listings.</p>
+
+      <label class="setting" for="hide-apply-now">
+        <span class="setting-copy">
+          <span class="setting-title">Hide APPLY NOW jobs</span>
+          <span class="setting-hint">Removes the whole job card from view.</span>
+        </span>
+        <input id="hide-apply-now" type="checkbox" role="switch" checked disabled aria-describedby="filter-status">
+        <span class="switch-track" aria-hidden="true"></span>
+      </label>
+
+      <label class="setting" for="hide-duplicates">
+        <span class="setting-copy">
+          <span class="setting-title">Hide duplicate jobs</span>
+          <span class="setting-hint">Keep the first matching job in this page.</span>
+        </span>
+        <input id="hide-duplicates" type="checkbox" role="switch" checked disabled aria-describedby="filter-status">
+        <span class="switch-track" aria-hidden="true"></span>
+      </label>
+
+      <p id="filter-status" class="status" role="status" aria-live="polite">Loading your preferences...</p>
+
+      <div class="kept-types">
+        <p>Keep these application types; hide repeat cards</p>
+        <span class="tag">EASY APPLY</span>
+        <span class="tag">APPLY WITH AUTOFILL</span>
+      </div>
+
+      <p class="footer">Your choices are saved and apply across Jobright tabs. Duplicate matching uses the job link, or its title, company, and location.</p>
+    </main>
+  </body>
+</html>
