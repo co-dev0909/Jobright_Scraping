@@ -137,6 +137,38 @@ input:disabled + .switch-track { opacity: 0.5; }
   letter-spacing: 0.1px;
 }
 
+.download-section {
+  margin-top: 17px;
+  padding-top: 17px;
+  border-top: 1px solid #e5ece8;
+}
+
+#download-job-links {
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 9px;
+  color: #ffffff;
+  background: #087f55;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+#download-job-links:hover:not(:disabled) { background: #066b47; }
+#download-job-links:focus-visible { outline: 3px solid #244fb3; outline-offset: 3px; }
+#download-job-links:disabled { opacity: 0.6; cursor: wait; }
+
+.download-hint {
+  margin: 9px 0 0;
+  color: #607269;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.download-status { margin: 10px 0 0; min-height: 0; }
+.download-status:empty { display: none; }
+
 .footer {
   margin: 15px 0 0;
   color: #607269;

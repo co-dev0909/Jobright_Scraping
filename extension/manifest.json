@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Jobright Apply Filter",
-  "version": "1.1.0",
-  "description": "Hide APPLY NOW jobs and duplicate Jobright cards, keeping one eligible copy of each job.",
+  "version": "1.2.0",
+  "description": "Hide APPLY NOW jobs and duplicate Jobright cards, and download links from your filtered job list.",
   "permissions": ["storage"],
   "action": {
     "default_title": "Jobright Apply Filter",

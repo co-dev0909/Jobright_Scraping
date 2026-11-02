@@ -36,6 +36,8 @@
   let settings = { ...DEFAULT_SETTINGS };
   let scanTimer;
   let previousUrl = location.href;
+  let settingsRevision = 0;
+  let collectingLinks = false;
 
   function normalize(text) {
     return (text || "").replace(/\s+/g, " ").trim().toUpperCase();
@@ -193,7 +195,7 @@
     // Start from the site's own visibility. A duplicate must become eligible
     // again if its earlier copy was removed, changed, or hidden by the site.
     restoreCards();
-    if ((!settings.hideApplyNow && !settings.hideDuplicates) || !isJobListRoute()) return;
+    if (!isJobListRoute()) return [];
 
     const candidates = [...document.querySelectorAll(CONTROL_SELECTOR)].filter((control) =>
       APPLICATION_LABELS.has(labelOf(control)) && !control.closest(EXCLUDED_REGIONS) && isVisible(control));
@@ -222,6 +224,116 @@
       if (card.getAttribute(HIDDEN_ATTRIBUTE) !== "true") card.setAttribute(HIDDEN_ATTRIBUTE, "true");
       hiddenCards.add(card);
     }
+    return [...visitedCards];
+  }
+
+  function jobUrlFor(card) {
+    const link = jobLinksWithin(card)[0];
+    if (link) return `https://jobright.ai/jobs/info/${encodeURIComponent(linkJobId(link))}`;
+    // Only synthesize links for unambiguous Jobright-style IDs. Other data IDs
+    // may be UI identifiers rather than real job destinations.
+    const ids = new Set([card, ...card.querySelectorAll("[data-job-id]")]
+      .map((element) => normalizeJobId(element.getAttribute("data-job-id"))).filter(Boolean));
+    if (ids.size === 1 && /^[a-f0-9]{24}$/.test([...ids][0])) {
+      return `https://jobright.ai/jobs/info/${[...ids][0]}`;
+    }
+    return null;
+  }
+
+  function scrollContainer(card) {
+    for (let node = card?.parentElement; node && node !== document.body; node = node.parentElement) {
+      if (node.scrollHeight > node.clientHeight && /^(auto|scroll|overlay)$/.test(getComputedStyle(node).overflowY)) {
+        return node;
+      }
+    }
+    return document.scrollingElement;
+  }
+
+  async function collectJobLinks() {
+    if (!isJobListRoute()) return { error: "Open a Jobright job list before downloading links." };
+    const pageUrl = location.href;
+    const revision = settingsRevision;
+    const links = new Set();
+    const seenKeys = new Set();
+    const skippedCards = new Set();
+    const originalPositions = new Map();
+    const deadline = Date.now() + 120_000;
+    let stableRounds = 0;
+    let previousLoadedState;
+    let stoppedReason = "limit";
+
+    try {
+      // Begin at the top even when the user opened the popup midway through a
+      // virtualized list. Earlier cards may no longer exist in the DOM.
+      const firstScroller = scrollContainer(scan()[0]);
+      if (firstScroller) {
+        originalPositions.set(firstScroller, firstScroller.scrollTop);
+        if (firstScroller.scrollTop !== 0) {
+          firstScroller.scrollTop = 0;
+          await new Promise((resolve) => setTimeout(resolve, 700));
+        }
+      }
+      for (let round = 0; round < 200 && Date.now() < deadline; round++) {
+        if (location.href !== pageUrl || settingsRevision !== revision) {
+          return { error: "The page or filters changed. Download again from the results you want." };
+        }
+        // Refresh filtering synchronously so a newly inserted or reused card
+        // cannot slip into the file before the observer's next scheduled scan.
+        const cards = scan();
+        const previousCount = links.size;
+        for (const card of cards) {
+          if (!isVisible(card) || hiddenCards.has(card)) continue;
+          const url = jobUrlFor(card);
+          if (!url) {
+            skippedCards.add(card);
+            continue;
+          }
+          const keys = duplicateKeys(card);
+          if (settings.hideDuplicates && [...keys].some((key) => seenKeys.has(key))) continue;
+          links.add(url);
+          for (const key of keys) seenKeys.add(key);
+        }
+
+        const scroller = scrollContainer(cards[0]);
+        if (!scroller) break;
+        if (!originalPositions.has(scroller)) originalPositions.set(scroller, scroller.scrollTop);
+        const beforeTop = scroller.scrollTop;
+        const beforeHeight = scroller.scrollHeight;
+        // Progress includes jobs excluded by the filters. Otherwise six batches
+        // of APPLY NOW jobs could stop collection before a later eligible job.
+        const signature = JSON.stringify(cards.map((card) => [
+          [...duplicateKeys(card)], normalize(card.textContent),
+        ]));
+        const loadedMore = !previousLoadedState ||
+          previousLoadedState.scroller !== scroller || previousLoadedState.height !== beforeHeight ||
+          previousLoadedState.signature !== signature;
+        previousLoadedState = { scroller, height: beforeHeight, signature };
+        const atBottom = beforeTop + scroller.clientHeight >= beforeHeight - 2;
+        if (atBottom && !loadedMore && links.size === previousCount) stableRounds++;
+        else stableRounds = 0;
+        if (stableRounds >= 6) {
+          // A quiet bottom is only an observed stopping point. Slow loading or
+          // site limits can still leave more jobs on the server.
+          stoppedReason = "stalled";
+          break;
+        }
+        // Never jump farther than a viewport: virtualized short lists could
+        // otherwise remove intermediate cards before we have collected them.
+        scroller.scrollTop = beforeTop + Math.max(1, Math.floor(scroller.clientHeight * 0.8));
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+      if (location.href !== pageUrl || settingsRevision !== revision) {
+        return { error: "The page or filters changed. Download again from the results you want." };
+      }
+      return { links: [...links], skippedCount: skippedCards.size, stoppedReason };
+    } finally {
+      if (location.href === pageUrl) {
+        for (const [scroller, top] of originalPositions) {
+          if (scroller.isConnected) scroller.scrollTop = top;
+        }
+        scan();
+      }
+    }
   }
 
   function scheduleScan() {
@@ -246,7 +358,26 @@
           changed = true;
         }
       }
-      if (changed) scan();
+      if (changed) {
+        settingsRevision++;
+        scan();
+      }
+    });
+
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== "GET_JOB_LINKS") return false;
+      if (collectingLinks) {
+        sendResponse({ error: "Job links are already being collected. Keep the download popup open." });
+        return false;
+      }
+      collectingLinks = true;
+      void collectJobLinks()
+        .catch(() => ({ error: "Could not collect job links. Refresh Jobright and try again." }))
+        .then((result) => {
+          collectingLinks = false;
+          sendResponse(result);
+        });
+      return true;
     });
 
     new MutationObserver(scheduleScan).observe(document.documentElement, {

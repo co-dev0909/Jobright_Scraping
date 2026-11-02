@@ -4,6 +4,8 @@ A Chrome extension that hides Jobright job cards whose application button says *
 
 Both filters are on by default. Use the extension's toolbar popup to switch **Hide APPLY NOW jobs** and **Hide duplicate jobs** on or off independently. Your preferences are saved across browser restarts and shared by your open Jobright tabs. Newly loaded job cards are filtered as you browse.
 
+Use **Download job links** in the popup to automatically scroll your current filtered Jobright list and save eligible job links to a text file.
+
 **Already installed?** At `chrome://extensions`, click the reload button on **Jobright Apply Filter**, then refresh your Jobright tabs. Duplicate filtering starts automatically.
 
 ## Install in Chrome
@@ -18,6 +20,19 @@ Both filters are on by default. Use the extension's toolbar popup to switch **Hi
 If you are using `jobright-apply-filter.zip`, extract it first. At step 4, select the extracted folder containing `manifest.json`. Keep that folder in place while the extension is installed.
 
 These steps follow [Chrome's instructions for loading an unpacked extension](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked).
+
+## Download job links
+
+1. Open your Jobright job list and choose the website filters you want (such as location, role, experience, remote, and posting date).
+2. Open the extension popup and leave **Hide APPLY NOW jobs** and **Hide duplicate jobs** enabled to export the eligible jobs without repeats. The download follows your current extension settings if you change them.
+3. Click **Download job links**. Keep the popup open and leave the page and filters unchanged while it collects links.
+4. Save **jobright-job-links.txt** when the download starts. It contains one Jobright job URL per line, in collection order, without tracking parameters. Each URL appears once.
+
+Collection starts at the top, scrolls the job list automatically, and retains links from cards removed by virtual scrolling. It uses the results your browser loads under the current website filters; it does not query a separate Jobright API or apply for jobs. The original scroll position is restored afterward.
+
+Collection stops after the bottom stays quiet for about four seconds, or after two minutes / 200 scroll steps. The popup reports how many links were collected. Slow loading, site result limits, and cards without an identifiable job link can prevent a complete export; the popup reports skipped cards and when the collection limit is reached. You can try again after more results load. A card needs a Jobright job link or an unambiguous 24-character hexadecimal job ID to be exported. Navigation or extension filter changes during collection cancel the download so results from different lists are not mixed. Avoid changing website filters during collection, including filters that do not change the page URL.
+
+The download uses your open Jobright tab. No new permissions, backend, or account credentials are required. If you just updated the extension, reload it at `chrome://extensions` and refresh your Jobright tab before downloading.
 
 ## What the filter does
 
@@ -52,4 +67,10 @@ From the source project (tests are not included in the installation ZIP), run th
 node --test tests/browser.test.mjs
 ```
 
-The tests use representative local pages rather than your Jobright account.
+On Linux, use Node.js 22 or newer and a Chromium-compatible browser:
+
+```bash
+EDGE_PATH=/usr/bin/chromium node --test tests/browser.test.mjs
+```
+
+The tests use representative local pages rather than your Jobright account, including dynamically loaded and virtualized job lists and the popup download flow.

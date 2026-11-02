@@ -56,13 +56,13 @@ class CdpConnection {
     return new CdpConnection(socket);
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, timeout = 10_000) {
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Timed out: ${method}`));
-      }, 10_000);
+      }, timeout);
       this.pending.set(id, { resolve, reject, timer });
       this.socket.send(JSON.stringify({ id, method, params }));
     });
@@ -165,6 +165,16 @@ ${card('nested', '<span>  apply\n</span><span> now </span>')}
 const storageMock = `(() => {
   const state = { hideApplyNow: true, hideDuplicates: true };
   const listeners = [];
+  const messageListeners = [];
+  window.__requestJobLinks = () => new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('No job-link response')), 130_000);
+    for (const listener of messageListeners) {
+      listener({ type: 'GET_JOB_LINKS' }, {}, (response) => {
+        clearTimeout(timeout);
+        resolve(response);
+      });
+    }
+  });
   window.__setSettings = (values) => {
     const changes = {};
     for (const [key, newValue] of Object.entries(values)) {
@@ -192,7 +202,7 @@ const storageMock = `(() => {
     },
     runtime: {
       lastError: undefined,
-      onMessage: { addListener() {} },
+      onMessage: { addListener(listener) { messageListeners.push(listener); } },
       sendMessage() { return Promise.resolve(); }
     }
   };
@@ -224,7 +234,7 @@ async function createPage(t, html = fixture, url = `${origin}/jobs/recommend`, i
       await connection.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
     },
     async evaluate(expression) {
-      const result = await connection.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+      const result = await connection.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, 135_000);
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       return result.result.value;
     },
@@ -539,4 +549,239 @@ test('includes separate geographic labels when matching remote reposts', async (
   await page.eventually(hidden('us-copy'));
   assert.equal(await page.evaluate(visible('us-first')), true);
   assert.equal(await page.evaluate(visible('canada')), true, 'Remote jobs with different geography remain visible');
+});
+
+test('exports canonical links only from cards retained by the current filters, including cards below the viewport', async (t) => {
+  const html = duplicateFixture(
+    duplicateCard('apply-now', { label: 'APPLY NOW' }),
+    duplicateCard('retained', { href: '/jobs/info/retained?source=recommend#apply' }),
+    duplicateCard('repost', { href: '/jobs/info/repost', label: 'APPLY WITH AUTOFILL' }),
+    '<div style="height: 1800px"></div>',
+    duplicateCard('below-fold', { title: 'Designer', href: 'https://www.jobright.ai/jobs/info/below-fold/?source=search' }),
+  );
+  const page = await createPage(t, html);
+  await page.eventually(hidden('apply-now'));
+  await page.eventually(hidden('repost'));
+  assert.equal(await page.evaluate('document.getElementById("below-fold").getBoundingClientRect().top > innerHeight'), true);
+  assert.deepEqual((await page.evaluate('window.__requestJobLinks()')).links, [
+    `${origin}/jobs/info/retained`,
+    `${origin}/jobs/info/below-fold`,
+  ], 'Download follows both filters and strips tracking parameters, fragment, www, and trailing slash');
+});
+
+test('export refreshes new cards immediately and follows disabled filters while deduplicating identical links', async (t) => {
+  const page = await createPage(t);
+  await page.eventually(hidden('linkedin'));
+  const inserted = duplicateCard('instant-now', { title: 'Another job', label: 'APPLY NOW' });
+  const response = await page.evaluate(`(() => {
+    document.getElementById('job-list').insertAdjacentHTML('beforeend', ${JSON.stringify(inserted)});
+    return window.__requestJobLinks();
+  })()`);
+  assert.deepEqual(response.links, [`${origin}/jobs/info/autofill`, `${origin}/jobs/info/easy`], 'A newly inserted APPLY NOW card is excluded before the debounced scan runs');
+  await page.evaluate('window.__setSettings({ hideApplyNow: false, hideDuplicates: false })');
+  const duplicate = card('same-easy', 'EASY APPLY').replace('/jobs/info/same-easy', '/jobs/info/easy?source=copy');
+  const unfiltered = await page.evaluate(`(() => {
+    document.getElementById('job-list').insertAdjacentHTML('beforeend', ${JSON.stringify(duplicate)});
+    return window.__requestJobLinks();
+  })()`);
+  assert.deepEqual(unfiltered.links, [
+    `${origin}/jobs/info/autofill`, `${origin}/jobs/info/easy`,
+    `${origin}/jobs/info/linkedin`, `${origin}/jobs/info/nested`, `${origin}/jobs/info/instant-now`,
+  ], 'Disabled filters allow APPLY NOW cards but the downloaded file never repeats a URL');
+});
+
+test('export excludes site-hidden cards, detail panels, navigation links, and offsite application URLs', async (t) => {
+  const html = duplicateFixture(
+    card('eligible', 'EASY APPLY'),
+    `<div hidden>${card('site-hidden', 'EASY APPLY')}</div>`,
+    card('css-hidden', 'EASY APPLY').replace('<article', '<article style="display:none"'),
+    duplicateCard('external', { href: 'https://example.com/jobs/info/external', company: null, location: null }),
+    '<nav><a href="/jobs/info/navigation">Navigation link</a></nav>',
+    `<aside data-testid="job-detail">${card('detail-card', 'EASY APPLY')}</aside>`,
+  );
+  const page = await createPage(t, html);
+  assert.deepEqual((await page.evaluate('window.__requestJobLinks()')).links, [`${origin}/jobs/info/eligible`]);
+});
+
+test('export supports a reliable data-job-id when a card has no link and skips ambiguous or unknown IDs', async (t) => {
+  const jobId = 'ABCDEF0123456789ABCDEF01';
+  const html = duplicateFixture(
+    duplicateCard('data-only', { href: null, jobId, company: null, location: null }),
+    duplicateCard('unknown-id', { href: null, jobId: 'dom-row-17', company: null, location: null }),
+    duplicateCard('ambiguous', { href: null, jobId: '111111111111111111111111', company: null, location: null })
+      .replace('</h2>', '</h2><span data-job-id="222222222222222222222222"></span>'),
+  );
+  const page = await createPage(t, html);
+  assert.deepEqual((await page.evaluate('window.__requestJobLinks()')).links, [`${origin}/jobs/info/${jobId.toLowerCase()}`]);
+});
+
+test('export refuses non-list routes even when old job cards remain in the page', async (t) => {
+  const page = await createPage(t);
+  await page.eventually(hidden('linkedin'));
+  for (const route of ['/profile', '/jobs/info/selected']) {
+    await page.evaluate(`history.pushState({}, '', ${JSON.stringify(route)})`);
+    const result = await page.evaluate('window.__requestJobLinks()');
+    assert.ok(result.error, `Route ${route} should explain why links cannot be exported`);
+    assert.ok(!result.links?.length, 'Do not export stale listing cards from another route');
+  }
+});
+
+test('automatic collection follows a nested scrolling list and retains links when virtualized cards are replaced', async (t) => {
+  const initial = [
+    duplicateCard('virtual-one', { title: 'Engineer' }),
+    duplicateCard('virtual-two', { title: 'Designer' }),
+  ];
+  const nextBatch = [
+    duplicateCard('virtual-two-copy', { jobId: 'virtual-two', title: 'Designer' }),
+    duplicateCard('virtual-one-repost', { title: 'Engineer' }),
+    duplicateCard('virtual-three', { title: 'Analyst', label: 'APPLY WITH AUTOFILL' }),
+    duplicateCard('virtual-external-apply', { title: 'Scientist', label: 'APPLY NOW' }),
+  ];
+  const html = duplicateFixture(...initial).replace('</body>', '<style>#job-list { height: 240px; overflow-y: auto; } .job-card { min-height: 180px; }</style></body>');
+  const page = await createPage(t, html);
+  await page.evaluate(`(() => {
+    const list = document.getElementById('job-list');
+    window.__loadedNextBatch = false;
+    list.addEventListener('scroll', () => {
+      if (!window.__loadedNextBatch && list.scrollTop + list.clientHeight >= list.scrollHeight - 2) {
+        window.__loadedNextBatch = true;
+        list.innerHTML = ${JSON.stringify(nextBatch.join(''))};
+      }
+    });
+  })()`);
+  const result = await page.evaluate('window.__requestJobLinks()');
+  assert.equal(await page.evaluate('window.__loadedNextBatch'), true, 'Download scrolls the actual nested list to request more cards');
+  assert.deepEqual(result.links, [
+    `${origin}/jobs/info/virtual-one`, `${origin}/jobs/info/virtual-two`, `${origin}/jobs/info/virtual-three`,
+  ], 'Earlier links survive virtualization and repeated jobs stay excluded across batches');
+});
+
+test('automatic collection visits every short virtualized row from the top and restores the original scroll position', async (t) => {
+  const rows = Array.from({ length: 18 }, (_, index) => card(`short-row-${index}`, 'EASY APPLY'));
+  const html = duplicateFixture('<div id="virtual-content"></div>').replace('</body>', `<style>
+    #job-list { height: 180px; overflow-y: auto; }
+    #virtual-content { position: relative; height: ${rows.length * 60}px; }
+    .job-card { position: absolute; height: 60px; width: 100%; margin: 0; overflow: hidden; box-sizing: border-box; }
+    .job-card h2, .job-card p { margin: 0; font-size: 12px; }
+    .match-score { display: none; }
+  </style></body>`);
+  const page = await createPage(t, html);
+  await page.evaluate(`(() => {
+    const list = document.getElementById('job-list');
+    const content = document.getElementById('virtual-content');
+    const rows = ${JSON.stringify(rows)};
+    const render = () => {
+      const first = Math.floor(list.scrollTop / 60);
+      content.innerHTML = rows.slice(first, first + 3).join('');
+      [...content.children].forEach((row, index) => { row.style.top = ((first + index) * 60) + 'px'; });
+    };
+    list.addEventListener('scroll', render);
+    list.scrollTop = 360;
+    render();
+  })()`);
+  assert.equal(await page.evaluate('document.getElementById("short-row-0") === null'), true, 'Earlier jobs are not mounted when collection begins');
+  const result = await page.evaluate('window.__requestJobLinks()');
+  assert.deepEqual(result.links, rows.map((_, index) => `${origin}/jobs/info/short-row-${index}`), 'Scroll increments must not jump over short rows removed by virtualization');
+  assert.equal(await page.evaluate('document.getElementById("job-list").scrollTop'), 360, 'The original list position is restored after collection');
+});
+
+test('automatic collection keeps waiting through successive filtered batches before an eligible job arrives', async (t) => {
+  const batches = Array.from({ length: 8 }, (_, index) => card(`excluded-batch-${index}`, 'APPLY NOW'));
+  batches.push(card('late-eligible', 'EASY APPLY'));
+  const page = await createPage(t, duplicateFixture(batches[0]));
+  await page.eventually(hidden('excluded-batch-0'));
+  const result = await page.evaluate(`(() => {
+    const batches = ${JSON.stringify(batches)};
+    window.__loadedBatch = 0;
+    const timer = setInterval(() => {
+      window.__loadedBatch++;
+      document.getElementById('job-list').innerHTML = batches[window.__loadedBatch];
+      if (window.__loadedBatch === batches.length - 1) clearInterval(timer);
+    }, 650);
+    return window.__requestJobLinks().finally(() => clearInterval(timer));
+  })()`);
+  assert.equal(await page.evaluate('window.__loadedBatch'), batches.length - 1, 'Filtered jobs arriving for more than six collection polls still count as loading progress');
+  assert.deepEqual(result.links, [`${origin}/jobs/info/late-eligible`], 'The export includes the later usable job and excludes every APPLY NOW batch');
+});
+
+test('automatic collection cancels when the user changes filters or navigates away', async (t) => {
+  const page = await createPage(t);
+  await page.eventually(hidden('linkedin'));
+  const result = await page.evaluate(`(() => {
+    const pending = window.__requestJobLinks();
+    setTimeout(() => window.__setSettings({ hideApplyNow: false }), 100);
+    return pending;
+  })()`);
+  assert.ok(result.error, 'Do not label a mixture of different filter states as one complete export');
+  const navigated = await page.evaluate(`(() => {
+    const pending = window.__requestJobLinks();
+    setTimeout(() => history.pushState({}, '', '/profile'), 100);
+    return pending;
+  })()`);
+  assert.ok(navigated.error, 'Navigating away cancels the active export');
+});
+
+async function createDownloadPopup(t) {
+  const [html, script] = await Promise.all([
+    readFile(path.join(root, 'extension', 'popup.html'), 'utf8'),
+    readFile(path.join(root, 'extension', 'popup.js'), 'utf8'),
+  ]);
+  const page = await createPage(t, html.replace('<main>', '<main id="job-list">'), `${origin}/popup`);
+  await page.evaluate(`(() => {
+    window.__downloadCalls = [];
+    window.__tabQueries = [];
+    window.__messages = [];
+    window.__tabResult = [{ id: 42, url: 'https://jobright.ai/jobs/recommend' }];
+    window.__exportResult = { links: [] };
+    window.__exportError = null;
+    window.__downloadBlob = null;
+    chrome.tabs = {
+      async query(query) { window.__tabQueries.push(query); return window.__tabResult; },
+      async sendMessage(id, message) {
+        window.__messages.push({ id, message });
+        if (window.__exportError) throw new Error(window.__exportError);
+        return window.__exportResult;
+      }
+    };
+    URL.createObjectURL = (blob) => {
+      window.__downloadBlob = blob;
+      return 'blob:jobright-test-download';
+    };
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function () {
+      window.__downloadCalls.push({ href: this.getAttribute('href'), filename: this.download });
+    };
+  })()`);
+  await page.evaluate(script);
+  await page.eventually('document.getElementById("download-job-links").disabled === false');
+  return page;
+}
+
+test('popup downloads the active tab links as a plain text file with one URL per line', async (t) => {
+  const page = await createDownloadPopup(t);
+  const links = [`${origin}/jobs/info/one`, `${origin}/jobs/info/two`];
+  await page.evaluate(`window.__exportResult = { links: ${JSON.stringify(links)} }; document.getElementById('download-job-links').click()`);
+  await page.eventually('window.__downloadCalls.length === 1');
+  assert.deepEqual(await page.evaluate('window.__tabQueries'), [{ active: true, currentWindow: true }]);
+  assert.deepEqual(await page.evaluate('window.__messages'), [{ id: 42, message: { type: 'GET_JOB_LINKS' } }]);
+  assert.deepEqual(await page.evaluate('window.__downloadCalls'), [{ href: 'blob:jobright-test-download', filename: 'jobright-job-links.txt' }]);
+  const text = await page.evaluate('window.__downloadBlob.text()');
+  assert.deepEqual(text.trimEnd().split('\n'), links, 'Saved text contains the collected links, one per line');
+  assert.match(await page.evaluate('window.__downloadBlob.type'), /^text\/plain/);
+  assert.match(await page.evaluate('document.getElementById("download-status").textContent'), /2/);
+  assert.equal(await page.evaluate('document.getElementById("download-job-links").disabled'), false, 'Button can be used again after download');
+});
+
+test('popup reports empty results and messaging failures without downloading an empty file', async (t) => {
+  const page = await createDownloadPopup(t);
+  await page.evaluate('document.getElementById("download-job-links").click()');
+  await page.eventually('/no .*job|no .*link|0 .*job|0 .*link/i.test(document.getElementById("download-status").textContent)');
+  assert.equal(await page.evaluate('window.__downloadCalls.length'), 0);
+  await page.evaluate('window.__exportError = "Could not establish connection. Receiving end does not exist."; document.getElementById("download-job-links").click()');
+  await page.eventually('/refresh|reload/i.test(document.getElementById("download-status").textContent)');
+  assert.equal(await page.evaluate('window.__downloadCalls.length'), 0);
+  assert.equal(await page.evaluate('document.getElementById("download-job-links").disabled'), false, 'A failed message does not leave the button stuck');
+  await page.evaluate('window.__exportError = null; window.__tabResult = []; document.getElementById("download-job-links").click()');
+  await page.eventually('/open|jobright|tab/i.test(document.getElementById("download-status").textContent)');
+  assert.equal(await page.evaluate('window.__downloadCalls.length'), 0);
 });
