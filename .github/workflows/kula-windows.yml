@@ -1,0 +1,43 @@
+name: Build Kula APP for Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'kula-app/**'
+      - 'extension/**'
+      - '.github/workflows/kula-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test the local connection
+        run: dotnet run --project kula-app/tests/Kula.Bridge.Tests/Kula.Bridge.Tests.csproj -c Release
+      - name: Build Windows executable
+        shell: pwsh
+        run: ./kula-app/publish-windows.ps1
+      - name: Assemble app and extension
+        shell: pwsh
+        run: |
+          $package = 'kula-app/artifacts/KulaAPP-package'
+          New-Item -ItemType Directory -Path "$package/extension" -Force | Out-Null
+          Copy-Item 'kula-app/artifacts/win-x64/KulaAPP.exe' "$package/KulaAPP.exe"
+          Copy-Item 'extension/*' "$package/extension/"
+          Copy-Item 'kula-app/README.md' "$package/README.md"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KulaAPP-windows-x64
+          path: kula-app/artifacts/KulaAPP-package/
+          if-no-files-found: error
+          retention-days: 30

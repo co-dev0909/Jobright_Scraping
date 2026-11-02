@@ -1,0 +1,4 @@
+# .NET build outputs and local Windows publishing artifacts
+**/bin/
+**/obj/
+kula-app/artifacts/

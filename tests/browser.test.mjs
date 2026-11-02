@@ -721,13 +721,14 @@ test('automatic collection cancels when the user changes filters or navigates aw
   assert.ok(navigated.error, 'Navigating away cancels the active export');
 });
 
-async function createDownloadPopup(t) {
+async function createDownloadPopup(t, pairingKey = '') {
   const [html, script] = await Promise.all([
     readFile(path.join(root, 'extension', 'popup.html'), 'utf8'),
     readFile(path.join(root, 'extension', 'popup.js'), 'utf8'),
   ]);
   const page = await createPage(t, html.replace('<main>', '<main id="job-list">'), `${origin}/popup`);
   await page.evaluate(`(() => {
+    window.__setSettings({ kulaPairingKey: ${JSON.stringify(pairingKey)} });
     window.__downloadCalls = [];
     window.__tabQueries = [];
     window.__messages = [];
@@ -735,6 +736,14 @@ async function createDownloadPopup(t) {
     window.__exportResult = { links: [] };
     window.__exportError = null;
     window.__downloadBlob = null;
+    window.__runtimeMessages = [];
+    window.__kulaResult = { ok: true, count: 0 };
+    window.__kulaError = null;
+    chrome.runtime.sendMessage = async (message) => {
+      window.__runtimeMessages.push(message);
+      if (window.__kulaError) throw new Error(window.__kulaError);
+      return window.__kulaResult;
+    };
     chrome.tabs = {
       async query(query) { window.__tabQueries.push(query); return window.__tabResult; },
       async sendMessage(id, message) {
@@ -783,5 +792,66 @@ test('popup reports empty results and messaging failures without downloading an 
   assert.equal(await page.evaluate('document.getElementById("download-job-links").disabled'), false, 'A failed message does not leave the button stuck');
   await page.evaluate('window.__exportError = null; window.__tabResult = []; document.getElementById("download-job-links").click()');
   await page.eventually('/open|jobright|tab/i.test(document.getElementById("download-status").textContent)');
+  assert.equal(await page.evaluate('window.__downloadCalls.length'), 0);
+});
+
+test('Kula send collects filtered links and sends one replacement batch without downloading a file', async (t) => {
+  const page = await createDownloadPopup(t, 'a'.repeat(64));
+  const links = [`${origin}/jobs/info/kula-one`, `${origin}/jobs/info/kula-two`];
+  await page.evaluate(`window.__exportResult = { links: ${JSON.stringify(links)}, skippedCount: 0, stoppedReason: 'stalled' }; window.__kulaResult = { ok: true, count: 2 }; document.getElementById('send-to-kula-app').click()`);
+  await page.eventually('window.__runtimeMessages.length === 1 && !document.getElementById("send-to-kula-app").disabled');
+  assert.deepEqual(await page.evaluate('window.__messages'), [{ id: 42, message: { type: 'GET_JOB_LINKS' } }]);
+  assert.deepEqual(await page.evaluate('window.__runtimeMessages'), [{ type: 'SEND_TO_KULA', links }]);
+  assert.equal(await page.evaluate('window.__downloadCalls.length'), 0, 'Sending to the app does not start a text-file download');
+  assert.match(await page.evaluate('document.getElementById("kula-status").textContent'), /2/);
+});
+
+test('Kula pairing validates the key and saves it before collection is allowed', async (t) => {
+  const page = await createDownloadPopup(t);
+  await page.evaluate('document.getElementById("send-to-kula-app").click()');
+  await page.eventually('/pair|key|connect/i.test(document.getElementById("kula-status").textContent) && !document.getElementById("send-to-kula-app").disabled');
+  assert.equal(await page.evaluate('window.__messages.length'), 0, 'A missing key is reported before the expensive scroll collection');
+  assert.equal(await page.evaluate('window.__runtimeMessages.length'), 0);
+  await page.evaluate('document.getElementById("kula-pairing-key").value = "invalid-key"; document.getElementById("save-kula-connection").click()');
+  await page.eventually('/key|64|valid/i.test(document.getElementById("kula-connection-status").textContent)');
+  assert.equal(await page.evaluate('(async () => (await chrome.storage.local.get({ kulaPairingKey: "" })).kulaPairingKey)()'), '');
+  const key = 'b'.repeat(64);
+  await page.evaluate(`document.getElementById('kula-pairing-key').value = '${key}'; document.getElementById('save-kula-connection').click()`);
+  await page.eventually(`(async () => (await chrome.storage.local.get({ kulaPairingKey: '' })).kulaPairingKey === '${key}')()`);
+  assert.equal(await page.evaluate('document.getElementById("kula-pairing-key").type'), 'password');
+});
+
+test('Kula empty or failed collection never sends a batch that could erase the app list', async (t) => {
+  const page = await createDownloadPopup(t, 'a'.repeat(64));
+  await page.evaluate('document.getElementById("send-to-kula-app").click()');
+  await page.eventually('/no .*job|no .*link|0 .*job|0 .*link/i.test(document.getElementById("kula-status").textContent)');
+  assert.equal(await page.evaluate('window.__runtimeMessages.length'), 0, 'Empty collection must preserve the old app list');
+  await page.evaluate('window.__exportResult = { error: "The page or filters changed. Download again." }; document.getElementById("send-to-kula-app").click()');
+  await page.eventually('/changed/i.test(document.getElementById("kula-status").textContent)');
+  assert.equal(await page.evaluate('window.__runtimeMessages.length'), 0, 'A cancelled collection must preserve the old app list');
+  assert.equal(await page.evaluate('document.getElementById("send-to-kula-app").disabled'), false);
+});
+
+test('Kula reports app failures and mismatched acknowledgements without claiming success', async (t) => {
+  const page = await createDownloadPopup(t, 'a'.repeat(64));
+  await page.evaluate(`window.__exportResult = { links: ['${origin}/jobs/info/kula-one'] }; window.__kulaResult = { error: 'Open Kula APP and try again.' }; document.getElementById('send-to-kula-app').click()`);
+  await page.eventually('/open kula/i.test(document.getElementById("kula-status").textContent) && !document.getElementById("send-to-kula-app").disabled');
+  assert.equal(await page.evaluate('document.getElementById("kula-status").classList.contains("error")'), true);
+  await page.evaluate('window.__kulaResult = { ok: true, count: 0 }; document.getElementById("send-to-kula-app").click()');
+  await page.eventually('window.__runtimeMessages.length === 2 && !document.getElementById("send-to-kula-app").disabled');
+  assert.equal(await page.evaluate('document.getElementById("kula-status").classList.contains("error")'), true, 'A different acknowledged count must not be presented as success');
+  assert.equal(await page.evaluate('window.__downloadCalls.length'), 0);
+});
+
+test('Kula send and download share a collection lock so concurrent clicks cannot mix operations', async (t) => {
+  const page = await createDownloadPopup(t, 'a'.repeat(64));
+  await page.evaluate(`chrome.tabs.sendMessage = async (id, message) => { window.__messages.push({ id, message }); return new Promise(resolve => { window.__resolveCollection = resolve; }); }; document.getElementById('send-to-kula-app').click()`);
+  await page.eventually('typeof window.__resolveCollection === "function"');
+  assert.equal(await page.evaluate('document.getElementById("send-to-kula-app").disabled && document.getElementById("download-job-links").disabled'), true);
+  await page.evaluate('document.getElementById("download-job-links").click(); document.getElementById("send-to-kula-app").click()');
+  assert.equal(await page.evaluate('window.__messages.length'), 1, 'Only one GET_JOB_LINKS request may be active');
+  await page.evaluate(`window.__kulaResult = { ok: true, count: 1 }; window.__resolveCollection({ links: ['${origin}/jobs/info/kula-one'] })`);
+  await page.eventually('!document.getElementById("send-to-kula-app").disabled && !document.getElementById("download-job-links").disabled');
+  assert.equal(await page.evaluate('window.__runtimeMessages.length'), 1);
   assert.equal(await page.evaluate('window.__downloadCalls.length'), 0);
 });

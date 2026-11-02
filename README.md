@@ -6,6 +6,8 @@ Both filters are on by default. Use the extension's toolbar popup to switch **Hi
 
 Use **Download job links** in the popup to automatically scroll your current filtered Jobright list and save eligible job links to a text file.
 
+Use **Send to Kula APP** to replace the job-link list in the companion Windows app with your current filtered results.
+
 **Already installed?** At `chrome://extensions`, click the reload button on **Jobright Apply Filter**, then refresh your Jobright tabs. Duplicate filtering starts automatically.
 
 ## Install in Chrome
@@ -34,6 +36,22 @@ Collection stops after the bottom stays quiet for about four seconds, or after t
 
 The download uses your open Jobright tab. No new permissions, backend, or account credentials are required. If you just updated the extension, reload it at `chrome://extensions` and refresh your Jobright tab before downloading.
 
+## Send links to Kula APP
+
+Kula APP is a Windows x64 desktop app included in this repository. Each successful send **clears the previous list and replaces it with the newly collected links**. Invalid batches and failed collections leave the previous list in place. Empty results do not clear the app.
+
+1. Build and open **KulaAPP.exe** using the [Windows app instructions](kula-app/README.md). The .NET 10 SDK is needed to build it; the published executable includes its own runtime.
+2. Reload the updated extension at `chrome://extensions`, accept the new local connection permission if prompted, and refresh Jobright.
+3. In Kula APP, click **Copy pairing key**. In the extension popup, open **Connect to Kula APP**, paste the key, and click **Save connection**. Do this once per browser profile.
+4. Choose the filters you want on Jobright. Keep Kula APP open, click **Send to Kula APP**, and keep the popup open while it collects and sends links.
+5. Kula APP replaces its list, and the extension confirms the received link count. A second send replaces that list again rather than appending.
+
+The same collection rules and limits described above apply. If a send times out or the acknowledgement is lost, check Kula APP's list before retrying. The list is kept in memory and starts empty when the app restarts.
+
+This version adds access to `http://127.0.0.1/*` for the connection. The extension sends only to the fixed local endpoint `http://127.0.0.1:43127/v1/job-links`. Kula APP listens only on this computer and requires the saved pairing key. The app does not need your Jobright credentials. Keep the pairing key private.
+
+The **Build Kula APP for Windows** GitHub Actions workflow builds a package containing the Windows executable and matching extension. After a successful run, the downloadable artifact is named **KulaAPP-windows-x64**. A second extension can use the same local protocol when its behavior is defined; this first version implements the Jobright-to-app flow.
+
 ## What the filter does
 
 - Hides matching job cards locally in the page. It does not use Jobright's account-level “hide job” action.
@@ -47,7 +65,7 @@ The download uses your open Jobright tab. No new permissions, backend, or accoun
 
 Duplicate detection only compares cards currently in the page. It does not save a history of jobs or suppress matching jobs across tabs or after navigating to a different page.
 
-The extension does not apply for jobs, modify account data, or send data to a backend. It uses browser storage for the two on/off preferences and runs its page script only on Jobright. Website totals can still include the cards hidden by the extension.
+The extension does not apply for jobs or modify account data. It stores the two preferences and the local Kula pairing key in browser storage, and runs its page script only on Jobright. Job links are sent to the local Kula APP only when you click **Send to Kula APP**. Website totals can still include the cards hidden by the extension.
 
 ## If a card is still visible
 
@@ -73,4 +91,11 @@ On Linux, use Node.js 22 or newer and a Chromium-compatible browser:
 EDGE_PATH=/usr/bin/chromium node --test tests/browser.test.mjs
 ```
 
-The tests use representative local pages rather than your Jobright account, including dynamically loaded and virtualized job lists and the popup download flow.
+Run the connection-worker tests and the portable .NET receiver integration tests:
+
+```bash
+node --test tests/kula-bridge.test.mjs
+dotnet run --project kula-app/tests/Kula.Bridge.Tests/Kula.Bridge.Tests.csproj -c Release
+```
+
+The browser tests use representative local pages rather than your Jobright account, including dynamically loaded and virtualized job lists and popup download/send flows. Receiver integration tests exercise real local HTTP transfers, validation, replacement, and acknowledgement behavior. The Windows app can be cross-built on Linux; its actual GUI needs verification on Windows.
