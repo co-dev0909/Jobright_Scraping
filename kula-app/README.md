@@ -112,6 +112,8 @@ The profile is saved locally in `%LOCALAPPDATA%\KulaAPP\profile.json` and loaded
 4. Click **Start**. Completed application forms are submitted automatically, and each job's Status is updated.
 5. Click **Stop** to cancel the next steps. A submission already in progress may finish; a submitted application cannot be undone by Stop.
 
-The ChatGPT extension sends form questions, the saved profile, and the matching PDF to a new conversation in your ChatGPT account, then returns structured answers. The runner uses only supplied facts, leaves unsupported required answers for attention, and does not bypass login or CAPTCHA. Custom employer workflows and ambiguous one-click apply controls may need manual attention.
+Your TXT file contains Jobright detail links. Start opens each link, clicks **APPLY WITH AUTOFILL** or **EASY APPLY**, and follows the resulting application site or dialog. Delayed new tabs and redirects are associated with that job. After the run, select a row to see its exact attention or result message below the table.
+
+The ChatGPT extension sends form questions, the saved profile, and the matching PDF to a new conversation in your ChatGPT account, then returns structured answers. The runner uses only supplied facts, leaves unsupported required answers for attention, and does not bypass login or CAPTCHA. Custom employer workflows and ambiguous one-click submission controls on third-party sites may need manual attention.
 
 The app records confirmed and uncertain final submissions in `application-history.json` to avoid automatic duplicate applications on restart. Review an uncertain application's browser tab before taking further action. The complete setup and compatibility details are in **AUTOMATION.md** in the downloadable package.

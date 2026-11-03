@@ -79,19 +79,19 @@ after(async () => {
   if (profile) await rm(profile, { recursive: true, force: true, maxRetries: 5 });
 });
 
-async function page(t, html) {
+async function page(t, html, url = 'https://jobright.ai/jobs/info/fixture') {
   const target = await (await fetch(`${base}/json/new?about:blank`, { method: 'PUT' })).json();
   const cdp = await Cdp.connect(target.webSocketDebuggerUrl);
   t.after(async () => { cdp.close(); await rootConnection.send('Target.closeTarget', { targetId: target.id }).catch(() => {}); });
   await cdp.send('Page.enable');
-  await cdp.send('Fetch.enable', { patterns: [{ urlPattern: 'https://jobright.ai/*' }] });
+  await cdp.send('Fetch.enable', { patterns: [{ urlPattern: `${new URL(url).origin}/*` }] });
   cdp.on('Fetch.requestPaused', ({ requestId, resourceType }) => {
     void cdp.send('Fetch.fulfillRequest', { requestId, responseCode: 200,
-      responseHeaders: [{ name: 'Content-Type', value: 'text/html' }],
+      responseHeaders: [{ name: 'Content-Type', value: 'text/html; charset=utf-8' }],
       body: Buffer.from(resourceType === 'Document' ? `<!doctype html><body>${html}</body>` : '').toString('base64'),
     }).catch(() => {});
   });
-  await cdp.send('Page.navigate', { url: 'https://jobright.ai/jobs/info/fixture' });
+  await cdp.send('Page.navigate', { url });
   async function evaluate(expression) {
     const result = await cdp.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
@@ -155,11 +155,60 @@ test('required consent and visible CAPTCHA are reported for manual attention', a
   assert.match((await captcha.run('inspect_form')).blocked, /CAPTCHA|verification/i);
 });
 
-test('application opening never clicks an ambiguous one-click final apply button', async (t) => {
-  const fixture = await page(t, '<button onclick="window.__clicked=true">EASY APPLY</button>');
-  const result = await fixture.run('open_entry');
-  assert.match(result.blocked, /submit immediately/i);
-  assert.equal(await fixture.evaluate('Boolean(window.__clicked)'), false);
+test('plain Jobright detail buttons launch the employer application once for both supported labels', async (t) => {
+  for (const label of ['APPLY WITH AUTOFILL', 'EASY APPLY']) {
+    const fixture = await page(t, `<button onclick="window.__clicks=(window.__clicks||0)+1;window.open('https://employer.example/apply')">${label}</button>`);
+    await fixture.evaluate(`window.open = (url) => { window.__opened = url; return null; }`);
+    assert.deepEqual(await fixture.run('open_entry'), { clicked: true });
+    assert.equal(await fixture.evaluate('window.__opened'), 'https://employer.example/apply');
+    assert.equal(await fixture.evaluate('window.__authorizations'), 1);
+    assert.ok((await fixture.run('open_entry')).blocked, 'Do not click a launch control twice while waiting for its destination');
+    assert.equal(await fixture.evaluate('window.__clicks'), 1);
+  }
+});
+
+test('Jobright launch labels ignore external arrow decorations but reject additional action text', async (t) => {
+  for (const label of [
+    'APPLY WITH AUTOFILL ↗',
+    'APPLY WITH AUTOFILL <span aria-hidden="true">↗</span>',
+    'APPLY WITH AUTOFILL <svg><title>Open employer application</title></svg>',
+  ]) {
+    const fixture = await page(t, `<button onclick="window.__clicked=true">${label}</button>`);
+    assert.equal((await fixture.run('open_entry')).clicked, true, `Decorated label: ${label}`);
+    assert.equal(await fixture.evaluate('window.__clicked'), true);
+  }
+  const unrelated = await page(t, '<button onclick="window.__clicked=true">APPLY WITH AUTOFILL AND SUBMIT</button>');
+  assert.ok((await unrelated.run('open_entry')).blocked);
+  assert.equal(await unrelated.evaluate('Boolean(window.__clicked)'), false);
+});
+
+test('plain launcher exception is limited to Jobright detail pages and never clicks form submit controls', async (t) => {
+  for (const [url, html] of [
+    ['https://employer.example/apply', '<button onclick="window.__clicked=true">APPLY NOW</button>'],
+    ['https://jobright.ai/jobs/recommend', '<button onclick="window.__clicked=true">EASY APPLY</button>'],
+    ['https://jobright.ai/jobs/info/fixture', '<form><button onclick="event.preventDefault();window.__clicked=true">EASY APPLY</button></form>'],
+    ['https://jobright.ai/jobs/info/fixture', '<button type="submit" onclick="window.__clicked=true">EASY APPLY</button>'],
+  ]) {
+    const fixture = await page(t, html, url);
+    assert.match((await fixture.run('open_entry')).blocked, /submit immediately/i);
+    assert.equal(await fixture.evaluate('Boolean(window.__clicked)'), false);
+  }
+});
+
+test('disabled, ambiguous, or stopped Jobright launch controls cannot open an application', async (t) => {
+  for (const html of [
+    '<button disabled onclick="window.__clicked=true">EASY APPLY</button>',
+    '<div role="button" aria-disabled="true" onclick="window.__clicked=true">APPLY WITH AUTOFILL</div>',
+    '<button>EASY APPLY</button><button>APPLY WITH AUTOFILL</button>',
+  ]) {
+    const fixture = await page(t, html);
+    assert.ok((await fixture.run('open_entry')).blocked);
+    assert.equal(await fixture.evaluate('Boolean(window.__clicked)'), false);
+  }
+  const stopped = await page(t, '<button onclick="window.__clicked=true">EASY APPLY</button>');
+  await stopped.evaluate('window.__authorized=false');
+  await assert.rejects(stopped.run('open_entry'), /stopped|exception|undefined/i);
+  assert.equal(await stopped.evaluate('Boolean(window.__clicked)'), false);
 });
 
 test('opening a marked apply dialog is allowed but private destination links are blocked', async (t) => {

@@ -10,6 +10,8 @@ In the companion Windows app, use **Export job links** to open the downloaded TX
 
 Kula APP also includes **Start**/**Stop** application automation with the Jobright runner and a new **Kula ChatGPT Connector** extension. See the [automation setup and supported forms](docs/automation.md). Start submits completed applications automatically using the matched resume and saved profile.
 
+Start uses your existing Jobright detail links: it clicks **APPLY WITH AUTOFILL** or **EASY APPLY** and follows the employer application or Jobright dialog that opens. Select a job row after a run to view its specific result or attention reason.
+
 **Already installed?** At `chrome://extensions`, click the reload button on **Jobright Apply Filter**, then refresh your Jobright tabs. Duplicate filtering starts automatically.
 
 ## Install in Chrome

@@ -9,6 +9,7 @@
   let activeCommand;
   let activeTab;
   let advanceAuthorized = false;
+  let entryAuthorized = false;
 
   const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
   async function status(message) {
@@ -105,6 +106,85 @@
       return results[0].result;
     } finally { activeTab = undefined; }
   }
+  function noEntryYet(result) {
+    return /^Could not identify a single supported application entry button\.?$/i.test(result?.blocked || "");
+  }
+  function noFormYet(result) {
+    return /^No supported application form was found in the main page\.?$/i.test(result?.blocked || "");
+  }
+  function sameJobrightDetail(first, second) {
+    try {
+      const before = new URL(first), after = new URL(second);
+      return ["jobright.ai", "www.jobright.ai"].includes(before.hostname) &&
+        ["jobright.ai", "www.jobright.ai"].includes(after.hostname) &&
+        /^\/jobs\/info\//.test(before.pathname) && before.pathname === after.pathname;
+    } catch { return false; }
+  }
+  async function openEntryWhenReady(tabId, command, settings, popups) {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      await authorize(command, settings);
+      popups.clear();
+      entryAuthorized = false;
+      try {
+        const result = await runInTab(tabId, "open_entry", {}, command);
+        if (!noEntryYet(result)) return result;
+      } catch (error) {
+        // The page may navigate immediately after the authorized launch click.
+        // Treat it as a single click and observe its outcome; never click again.
+        if (entryAuthorized && /context|frame|navigat/i.test(String(error?.message || ""))) return { clicked: true };
+        throw error;
+      }
+      await delay(250);
+    }
+    return { blocked: "The application entry button did not become available. Wait for the page to finish loading and check its apply button." };
+  }
+  async function applicationTransition(sourceId, beforeUrl, popups, command, settings) {
+    const deadline = Date.now() + 15_000;
+    let nextAuthorization = 0;
+    let settledKey;
+    let settledSince = 0;
+    while (Date.now() < deadline) {
+      if (Date.now() >= nextAuthorization) {
+        await authorize(command, settings);
+        nextAuthorization = Date.now() + 1000;
+      }
+      if (popups.size > 1) return { tab_id: sourceId, blocked: "The apply action opened multiple related tabs. Review them manually." };
+      const tabId = popups.size === 1 ? [...popups][0] : sourceId;
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      if (!tab) return { tab_id: sourceId, blocked: "The application tab was closed before its destination could be opened." };
+      const blank = !tab.url || ["about:blank", "about:newtab"].includes(tab.url);
+      if (!blank && !safeApplicationUrl(tab.url)) return { tab_id: tabId, blocked: "The apply button opened an unsupported application destination." };
+      if (tab.status === "complete" && !blank) {
+        // Only the source tab's navigation or a correlated browser-created
+        // target can become an application tab. Unrelated new tabs are ignored.
+        await rememberTab(tabId, command, new URL(tab.url).origin);
+        let inspected;
+        try { inspected = await runInTab(tabId, "inspect_form", {}, command); }
+        catch (error) {
+          if (!/context|frame|navigat/i.test(String(error?.message || ""))) throw error;
+          await delay(250);
+          continue;
+        }
+        if (popups.size > 1) return { tab_id: sourceId, blocked: "The apply action opened multiple related tabs. Review them manually." };
+        if (inspected.complete) return { tab_id: tabId, already_applied: true };
+        if (inspected.form_token && !inspected.blocked) return { tab_id: tabId, ready: true, context: inspected.context || "" };
+        if (inspected.blocked && !noFormYet(inspected)) return { tab_id: tabId, blocked: inspected.blocked };
+
+        const navigated = tabId !== sourceId || (tab.url !== beforeUrl && !sameJobrightDetail(beforeUrl, tab.url));
+        const key = `${tabId}:${tab.url}`;
+        if (navigated) {
+          if (settledKey !== key) { settledKey = key; settledSince = Date.now(); }
+          // An employer may use an intermediate page with its own Apply link.
+          // Give hydration/redirects time, then let the outer loop open that
+          // explicit entry. Its own readiness wait never repeats a clicked CTA.
+          if (Date.now() - settledSince >= 1000) return { tab_id: tabId, transitioned: true };
+        } else settledKey = undefined;
+      } else settledKey = undefined;
+      await delay(250);
+    }
+    return { tab_id: sourceId, blocked: "The Jobright apply button was clicked, but no application page or dialog opened. Check whether the browser blocked a popup or the site requires attention." };
+  }
   async function openApplication(command, settings) {
     const url = command.payload?.url;
     if (!safeApplicationUrl(url, true)) return { blocked: "Only HTTPS Jobright job-detail links can start applications." };
@@ -115,31 +195,33 @@
     for (let step = 0; step < 3; step++) {
       const loaded = await loadedTab(tabId);
       await rememberTab(tabId, command, new URL(loaded.url).origin);
-      const popups = [];
-      const onCreated = (created) => { if (created.openerTabId === tabId) popups.push(created.id); };
+      const sourceId = tabId;
+      const popups = new Set();
+      const onCreated = (created) => {
+        if (created.openerTabId === sourceId && Number.isInteger(created.id)) popups.add(created.id);
+      };
+      const onNavigationTarget = (details) => {
+        if (details.sourceTabId === sourceId && (details.sourceFrameId === undefined || details.sourceFrameId === 0) &&
+            Number.isInteger(details.tabId)) popups.add(details.tabId);
+      };
       chrome.tabs.onCreated.addListener(onCreated);
-      let result;
-      try { result = await runInTab(tabId, "open_entry", {}, command); }
-      catch (error) {
-        // Navigation can destroy the context after the authorized entry click.
-        const changed = await chrome.tabs.get(tabId).catch(() => null);
-        if (!changed || changed.url === loaded.url) throw error;
-        result = { clicked: true };
+      chrome.webNavigation?.onCreatedNavigationTarget?.addListener(onNavigationTarget);
+      try {
+        const result = await openEntryWhenReady(tabId, command, settings, popups);
+        if (result.already_applied) return { tab_id: tabId, already_applied: true };
+        if (result.ready) {
+          const inspected = await runInTab(tabId, "inspect_form", {}, command);
+          return { tab_id: tabId, context: inspected.context || "", blocked: inspected.blocked };
+        }
+        if (result.blocked) return { tab_id: tabId, blocked: result.blocked };
+        if (!result.clicked) return { tab_id: tabId, blocked: "The application entry could not be opened." };
+        const transition = await applicationTransition(sourceId, loaded.url, popups, command, settings);
+        if (transition.ready || transition.blocked || transition.already_applied) return transition;
+        tabId = transition.tab_id;
       } finally {
-        await delay(700);
         chrome.tabs.onCreated.removeListener(onCreated);
+        chrome.webNavigation?.onCreatedNavigationTarget?.removeListener(onNavigationTarget);
       }
-      if (result.already_applied) return { tab_id: tabId, already_applied: true };
-      if (result.ready) {
-        const inspected = await runInTab(tabId, "inspect_form", {}, command);
-        return { tab_id: tabId, context: inspected.context || "", blocked: inspected.blocked };
-      }
-      if (result.blocked) return { tab_id: tabId, blocked: result.blocked };
-      if (!result.clicked) return { tab_id: tabId, blocked: "The application entry could not be opened." };
-      if (popups.length > 1) return { tab_id: tabId, blocked: "The apply action opened multiple tabs. Review them manually." };
-      if (popups.length === 1) tabId = popups[0];
-      const destination = await loadedTab(tabId);
-      await rememberTab(tabId, command, new URL(destination.url).origin);
     }
     return { tab_id: tabId, blocked: "The application needs more manual navigation before it can be filled." };
   }
@@ -243,6 +325,7 @@
       void config().then((settings) => settings ? authorize(activeCommand, settings) : Promise.reject())
         .then(() => {
           if (activeCommand?.action === "advance") advanceAuthorized = true;
+          if (activeCommand?.action === "open_application") entryAuthorized = true;
           sendResponse({ ok: true });
         }, () => sendResponse({ ok: false }));
       return true;

@@ -13,7 +13,7 @@ flowchart LR
 ## Set up the two browsers
 
 1. Download the latest successful **KulaAPP-windows-x64** artifact from the repository's **Build Kula APP for Windows** workflow. Extract it before running **KulaAPP.exe**.
-2. Load the package's **extension** directory as an unpacked extension in the browser profile you use for Jobright. Reload an existing installation and refresh Jobright.
+2. Load the package's **extension** directory as an unpacked extension in the browser profile you use for Jobright. Reload an existing installation and refresh Jobright. Version **1.5.1** adds navigation tracking for Jobright's external application buttons; allow the updated browser permission when prompted.
 3. Load **chatgpt-extension** as an unpacked extension in the browser profile signed in to your ChatGPT account. The two extensions may be in different browser profiles or browsers on the same Windows computer.
 4. Keep your Jobright and ChatGPT accounts signed in. Kula does not enter passwords or solve account challenges.
 5. In Kula APP, open **Automation** and click **Copy connection key**. This starts the authenticated local command connection.
@@ -30,6 +30,10 @@ No API key, Python installation, .NET installation, or native-host registration 
 4. Click **Start**. The app snapshots the current list, resumes, and saved profile, then processes one job at a time.
 5. Watch the Status column. **Submitted** requires observed confirmation from the application page. **Needs attention** means the app could not safely complete a required step. A missing confirmation is treated as uncertain rather than a successful submission.
 
+The saved links are Jobright job-detail links. For each one, the first extension opens the detail page, clicks **APPLY WITH AUTOFILL** or **EASY APPLY**, and follows the application that opens. This can be a new employer tab, a same-tab redirect, or an application dialog on Jobright. The runner waits for delayed navigation and form loading; it does not treat the Jobright description page as the application form. Browser navigation events associate new tabs with the clicked job, including links that use `noopener`.
+
+After a run, click a job row to see its specific result or attention reason below the table. These details remain available after the run-finished summary appears.
+
 The ChatGPT extension opens its own conversation tab for the job and attaches the matched PDF. The job context, form questions, and saved profile are sent to that ChatGPT conversation to draft answers. It does not read existing conversations or replace drafts in your normal tabs. ChatGPT account upload limits, generation limits, and website UI changes can prevent a job from completing.
 
 The app uses ordinary form controls and existing dropdown choices. It stops on required unknown facts, login, CAPTCHA, required legal attestations/consent, or unsupported widgets. It does not invent missing qualifications or infer demographic answers. ChatGPT's output is treated as answer data, not browser commands.
@@ -44,7 +48,7 @@ TXT and resume imports are locked while a run is active. The job/resume mapping 
 
 ## Supported forms and validation limits
 
-This first adapter supports visible, standard HTML fields in the main application page: text fields, text areas, selects, radio groups, checkboxes with supplied answers, and identifiable PDF resume uploads. The matched PDF must be acknowledged before advancing a form; flows that only offer a resume uploader later may need manual attention. It follows explicit application links and clearly marked dialog openers. An ambiguous one-click apply control is left for attention so it cannot submit using a different previously saved resume.
+This first adapter supports visible, standard HTML fields in the main application page: text fields, text areas, selects, radio groups, checkboxes with supplied answers, and identifiable PDF resume uploads. The matched PDF must be acknowledged before advancing a form; flows that only offer a resume uploader later may need manual attention. On verified Jobright detail pages, the runner supports the normal **APPLY WITH AUTOFILL** and **EASY APPLY** launch buttons, including plain buttons with external-link icons. Other sites still need explicit application links or clearly marked dialog openers before their editable form is available; ambiguous third-party one-click submissions are left for attention.
 
 Custom multi-step widgets, embedded cross-origin frames, e-signatures, special file uploaders, and employer-specific workflows may need additional adapters. A Jobright URL alone does not establish that its application flow is supported.
 

@@ -35,6 +35,7 @@ class KulaApp:
         self._closing = False
         self._running = False
         self._job_statuses: list[str] = []
+        self._job_messages: list[str] = []
         self._bridge = None
         self._bridge_factory = bridge_factory if bridge_factory is not None else AutomationBridge
         self._runner_factory = runner_factory if runner_factory is not None else AutomationRunner
@@ -99,6 +100,8 @@ class KulaApp:
                         background="#ffffff", foreground="#15392e", fieldbackground="#ffffff")
         self.job_list = ttk.Treeview(list_frame, columns=("number", "job", "resume", "status"), show="headings", selectmode="browse")
         self.job_table = self.job_list
+        self.job_list.bind("<<TreeviewSelect>>", self._show_job_details)
+        self.job_list.bind("<ButtonRelease-1>", self._show_job_details, add="+")
         self.job_list.heading("number", text="#")
         self.job_list.heading("job", text="Job link")
         self.job_list.heading("resume", text="Resume PDF")
@@ -219,6 +222,7 @@ class KulaApp:
         cancel = self._run_cancel
         self._running = True
         self._job_statuses = ["pending"] * len(links)
+        self._job_messages = ["Waiting for this job."] * len(links)
         self._render_rows(links, resumes)
         self._update_import_button()
         self.automation_status.set("Running applications in job-list order.")
@@ -264,11 +268,12 @@ class KulaApp:
                     continue
                 if event[1] == "progress":
                     _, _, index, status, message = event
+                    brief = self._brief_job_message(message)
                     if type(index) is int and 0 <= index < len(self._job_statuses):
                         self._job_statuses[index] = str(status)
+                        self._job_messages[index] = brief
                         self.job_list.set(str(index), "status", str(status).replace("_", " ").title())
                         self.job_list.see(str(index))
-                    brief = str(message).replace("\n", " ")[:500]
                     self.automation_status.set(brief)
                     self.transfer_status.set(brief)
                 elif event[1] == "done":
@@ -289,6 +294,25 @@ class KulaApp:
             except Exception:
                 self.connection_status.set("Automation connection unavailable. Close and reopen the app to reconnect.")
         self._automation_after = self.root.after(100, self._poll_automation)
+
+    @staticmethod
+    def _brief_job_message(message: object) -> str:
+        if not isinstance(message, str):
+            return "No job details were provided."
+        text = "".join(character if ord(character) >= 32 and ord(character) != 127 else " "
+                       for character in message[:2000])
+        return " ".join(text.split())[:500] or "No job details were provided."
+
+    def _show_job_details(self, _event=None) -> None:
+        selected = self.job_list.selection()
+        if not selected or not selected[0].isdigit():
+            return
+        index = int(selected[0])
+        if not 0 <= index < len(self._job_messages):
+            return
+        detail = f"Job {index + 1}: {self._job_messages[index]}"
+        self.transfer_status.set(detail)
+        self.automation_status.set(detail)
 
     def _update_import_button(self) -> None:
         busy = self._importing or self._loading_links or self._closing or self._running
@@ -346,8 +370,10 @@ class KulaApp:
         previous_count = self.job_count.get()
         previous_status = self.transfer_status.get()
         previous_job_statuses = self._job_statuses
+        previous_job_messages = self._job_messages
         try:
             self._job_statuses = ["pending"] * len(links)
+            self._job_messages = ["Waiting for this job."] * len(links)
             self._render_rows(links, [])
             self.job_count.set(f"{len(links):,} job link{'' if len(links) == 1 else 's'}")
             self.transfer_status.set("Job links loaded. The previous list was replaced.")
@@ -367,6 +393,7 @@ class KulaApp:
             self.resume_paths = previous_resumes
             self.resume_folder = previous_folder
             self._job_statuses = previous_job_statuses
+            self._job_messages = previous_job_messages
             self._render_rows(previous, previous_resumes)
             self._update_import_button()
             raise

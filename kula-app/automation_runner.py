@@ -53,6 +53,16 @@ class _Stopped(Exception):
     pass
 
 
+def _attention_reason(value: object) -> str:
+    """Keep a browser's concise explanation without dumping malformed data."""
+    fallback = "The application requires attention in the browser."
+    if not isinstance(value, str):
+        return fallback
+    text = "".join(character if ord(character) >= 32 and ord(character) != 127 else " "
+                   for character in value[:2000])
+    return " ".join(text.split())[:500] or fallback
+
+
 def _normal(value: str) -> str:
     return re.sub(r"[^\w]+", " ", value.casefold(), flags=re.UNICODE).strip()
 
@@ -181,7 +191,7 @@ def _inspection(result: object) -> dict:
     if not isinstance(result, dict):
         raise _NeedsAttention("The browser did not return a usable application form.")
     if result.get("blocked"):
-        raise _NeedsAttention("The application requires attention in the browser.")
+        raise _NeedsAttention(_attention_reason(result["blocked"]))
     if result.get("complete") is True:
         return result
     fields = result.get("fields")
@@ -382,7 +392,7 @@ class AutomationRunner:
         if not isinstance(result, dict):
             raise _NeedsAttention("The browser returned an invalid response.")
         if result.get("blocked"):
-            raise _NeedsAttention("The application requires attention in the browser.")
+            raise _NeedsAttention(_attention_reason(result["blocked"]))
         return result
 
     @staticmethod

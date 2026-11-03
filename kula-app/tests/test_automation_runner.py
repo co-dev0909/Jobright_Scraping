@@ -151,6 +151,32 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(any(action in {"fill_form", "advance"} for _, action, _ in bridge.calls))
         self.assertFalse(self.history.exists())
 
+    def test_browser_blocked_reasons_are_preserved_for_open_and_inspect(self):
+        reason = "The Jobright apply button was clicked but no application page opened."
+        for action in ("open_application", "inspect_form"):
+            with self.subTest(action=action):
+                self.events.clear()
+                bridge = FakeBridge({("jobright", action): {"blocked": reason}})
+                self.run_jobs(bridge)
+                self.assertEqual(self.terminal(), "needs_attention")
+                self.assertEqual(self.events[-1][2], reason)
+                self.assertFalse(any(name == "advance" for _, name, _ in bridge.calls))
+
+    def test_browser_blocked_details_are_bounded_single_line_and_handle_bad_types(self):
+        for blocked in (True, {"private": "not a status message"}, ["not a status message"],
+                        "  \n\t", "Reason\n\x00" + "x" * 3000):
+            with self.subTest(kind=type(blocked).__name__):
+                self.events.clear()
+                bridge = FakeBridge({("jobright", "open_application"): {"blocked": blocked}})
+                self.run_jobs(bridge)
+                self.assertEqual(self.terminal(), "needs_attention")
+                detail = self.events[-1][2]
+                self.assertLessEqual(len(detail), 500)
+                self.assertNotIn("\n", detail)
+                self.assertNotIn("\x00", detail)
+                if not isinstance(blocked, str) or not blocked.strip():
+                    self.assertEqual(detail, "The application requires attention in the browser.")
+
     def test_browser_blocker_explains_why_the_job_needs_attention(self):
         bridge = FakeBridge({("jobright", "open_application"): CommandError("Sign in to the application browser first.")})
         self.run_jobs(bridge)

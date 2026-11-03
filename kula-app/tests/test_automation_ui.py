@@ -193,6 +193,49 @@ class AutomationUITests(unittest.TestCase):
         self.assertEqual([self.app.job_list.set(item, "status") for item in self.app.job_list.get_children()],
                          ["Stopped", "Stopped"])
 
+    def test_row_selection_recovers_each_reason_after_run_summary_and_resume_render(self):
+        self.prepare()
+        reasons = ["Jobright did not open an application tab.", "This application requires a login."]
+
+        def attention_run(links, resumes, profile, progress, cancel_event):
+            for index, reason in enumerate(reasons):
+                progress(index, "needs_attention", reason)
+
+        self.runner.run = attention_run
+        self.app.start_automation()
+        self.wait_for(lambda: not self.app._running)
+        self.assertIn("Run finished", self.app.transfer_status.get())
+        self.app._render_rows(self.app.links, self.app.resume_paths)
+        for index, reason in enumerate(reasons):
+            self.app.job_list.selection_set(str(index))
+            self.app.job_list.event_generate("<<TreeviewSelect>>")
+            self.root.update()
+            self.assertEqual(self.app.transfer_status.get(), f"Job {index + 1}: {reason}")
+            self.assertEqual(self.app.automation_status.get(), f"Job {index + 1}: {reason}")
+        self.app._apply_links(LINKS)
+        self.assertEqual(self.app._job_messages, ["Waiting for this job."] * len(LINKS))
+
+    def test_stored_progress_details_are_bounded_and_reset_for_a_new_run(self):
+        self.prepare()
+
+        def attention_run(links, resumes, profile, progress, cancel_event):
+            progress(0, "needs_attention", "Reason\n\x00" + "x" * 3000)
+            progress(1, "needs_attention", {"private": "invalid status object"})
+
+        self.runner.run = attention_run
+        self.app.start_automation()
+        self.wait_for(lambda: not self.app._running)
+        self.assertLessEqual(len(self.app._job_messages[0]), 500)
+        self.assertNotIn("\n", self.app._job_messages[0])
+        self.assertNotIn("\x00", self.app._job_messages[0])
+        self.assertEqual(self.app._job_messages[1], "No job details were provided.")
+        self.runner = FakeRunner(block=True)
+        self.app.start_automation()
+        self.assertTrue(self.runner.started.wait(1))
+        self.assertEqual(self.app._job_messages, ["Waiting for this job."] * len(LINKS))
+        self.app.stop_automation()
+        self.wait_for(lambda: not self.app._running)
+
     def test_connection_key_setup_is_lazy_and_does_not_change_the_profile(self):
         self.prepare()
         before = self.store.load()

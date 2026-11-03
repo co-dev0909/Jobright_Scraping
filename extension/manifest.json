@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Jobright Apply Filter",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Filter and download Jobright links, and run applications started in Kula APP.",
-  "permissions": ["storage", "scripting", "tabs", "alarms"],
+  "permissions": ["storage", "scripting", "tabs", "webNavigation", "alarms"],
   "host_permissions": ["http://127.0.0.1/*", "https://jobright.ai/*", "https://www.jobright.ai/*"],
   "optional_host_permissions": ["https://*/*"],
   "background": { "service_worker": "runner-worker.js" },

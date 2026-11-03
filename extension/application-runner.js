@@ -31,6 +31,15 @@
     return normalize(element instanceof HTMLInputElement ? element.value : element.innerText || element.textContent);
   }
 
+  function entryLabel(element) {
+    // Jobright's external-application arrow is decoration, not part of the
+    // launch action's label. Keep exact matching for the remaining text.
+    const copy = element.cloneNode(true);
+    for (const icon of copy.querySelectorAll('svg,[aria-hidden="true"]')) icon.remove();
+    const text = normalize(copy.textContent || element.getAttribute("aria-label"));
+    return upper(text.replace(/\s*↗[\uFE0E\uFE0F]?\s*$/u, ""));
+  }
+
   function labelOf(element) {
     const labels = element.labels ? [...element.labels].map((label) => label.textContent).join(" ") : "";
     const labelledBy = (element.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean)
@@ -276,9 +285,10 @@
     if (blocked) return { blocked };
     if (chooseForm()) return { ready: true };
     const jobright = ["jobright.ai", "www.jobright.ai"].includes(location.hostname);
+    const jobrightDetail = jobright && /^\/jobs\/info\/[A-Za-z0-9_-]{1,200}\/?$/.test(location.pathname);
     const allowed = jobright ? new Set(["EASY APPLY", "APPLY WITH AUTOFILL"]) : entryLabels;
     const candidates = [...document.querySelectorAll('button,a,[role="button"]')].filter((element) => visible(element) &&
-      !element.disabled && element.getAttribute("aria-disabled") !== "true" && allowed.has(upper(textOf(element))));
+      !element.disabled && element.getAttribute("aria-disabled") !== "true" && allowed.has(entryLabel(element)));
     if (candidates.length !== 1 || clickedEntries.has(candidates[0])) return { blocked: "Could not identify a single supported application entry button." };
     const button = candidates[0];
     const navigation = button instanceof HTMLAnchorElement && button.hasAttribute("href");
@@ -286,10 +296,13 @@
     const dialogOpener = button.getAttribute("aria-haspopup") === "dialog" ||
       (controlsId && document.getElementById(controlsId)?.matches('[role="dialog"],dialog')) ||
       /^(?:open-application|open-apply-modal|application-modal-trigger)$/.test(button.getAttribute("data-testid") || "");
-    // EASY APPLY can itself submit on some sites. Opening an application must
-    // never click an ambiguous one-click submit before the desktop records a
-    // final submission attempt and supplies the matching resume.
-    if (!navigation && !dialogOpener) return { blocked: "This apply button may submit immediately. Open its editable application manually." };
+    // On Jobright detail pages these specific controls launch the employer's
+    // application flow. Plain buttons do not necessarily expose a link or
+    // dialog attribute. Elsewhere, retain the one-click-submit guard.
+    const jobrightLauncher = jobrightDetail && !button.closest("form") && !button.form &&
+      button.getAttribute("type")?.toLowerCase() !== "submit" &&
+      (button instanceof HTMLButtonElement || button.getAttribute("role") === "button");
+    if (!navigation && !dialogOpener && !jobrightLauncher) return { blocked: "This apply button may submit immediately. Open its editable application manually." };
     if (navigation && !safeUrl(button.href)) return { blocked: "Unsupported application link." };
     await authorize(command);
     clickedEntries.add(button);
