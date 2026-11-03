@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "Kula ChatGPT Connector",
+  "version": "1.0.0",
+  "description": "Use your signed-in ChatGPT browser to prepare grounded application answers for Kula APP.",
+  "permissions": ["storage", "tabs", "scripting", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*", "https://chatgpt.com/*"],
+  "background": {"service_worker": "worker.js"},
+  "action": {"default_title": "Kula ChatGPT Connector", "default_popup": "popup.html"}
+}

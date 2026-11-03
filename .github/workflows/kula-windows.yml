@@ -6,6 +6,10 @@ on:
     paths:
       - 'kula-app/**'
       - 'extension/**'
+      - 'chatgpt-extension/**'
+      - 'tests/*extension*.test.mjs'
+      - 'tests/application-runner.browser.test.mjs'
+      - 'docs/automation.md'
       - '.github/workflows/kula-windows.yml'
   workflow_dispatch:
 
@@ -23,6 +27,11 @@ jobs:
         with:
           python-version: '3.12'
           architecture: 'x64'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test extension command handling
+        run: node --test tests/runner-extension.test.mjs tests/application-runner.browser.test.mjs tests/chatgpt-extension.test.mjs
       - name: Test the app
         run: python -m unittest discover -s kula-app/tests -p "test_*.py" -v
       - name: Test the Windows UI
@@ -44,10 +53,12 @@ jobs:
         shell: pwsh
         run: |
           $package = 'kula-app/artifacts/KulaAPP-package'
-          New-Item -ItemType Directory -Path "$package/extension" -Force | Out-Null
+          New-Item -ItemType Directory -Path "$package/extension", "$package/chatgpt-extension" -Force | Out-Null
           Copy-Item 'kula-app/artifacts/win-x64/KulaAPP.exe' "$package/KulaAPP.exe"
           Copy-Item 'extension/*' "$package/extension/"
+          Copy-Item 'chatgpt-extension/*' "$package/chatgpt-extension/"
           Copy-Item 'kula-app/README.md' "$package/README.md"
+          Copy-Item 'docs/automation.md' "$package/AUTOMATION.md"
           $hash = (Get-FileHash "$package/KulaAPP.exe" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  KulaAPP.exe" | Set-Content "$package/SHA256SUMS.txt" -Encoding ascii
       - uses: actions/upload-artifact@v4

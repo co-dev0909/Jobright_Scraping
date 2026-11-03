@@ -62,7 +62,7 @@ class ResumeUITests(unittest.TestCase):
         expected = [(self.folder / name).resolve() for name in ("01.pdf", "02.pdf")]
         self.assertEqual(self.app.resume_paths, expected)
         self.assertEqual(self.app.resume_folder, self.folder.resolve())
-        self.assertEqual(self.rows(), [("1", LINKS[0], "01.pdf"), ("2", LINKS[1], "02.pdf")])
+        self.assertEqual(self.rows(), [("1", LINKS[0], "01.pdf", "Pending"), ("2", LINKS[1], "02.pdf", "Pending")])
         self.assertIn("2", self.app.resume_status.get())
         self.assertEqual(str(self.app.import_button["state"]), "normal")
         self.assertEqual(sorted(path.name for path in self.folder.iterdir()), ["01.pdf", "02.pdf"])
@@ -97,7 +97,7 @@ class ResumeUITests(unittest.TestCase):
         self.app._apply_links(LINKS)
         self.assertEqual(self.app.resume_paths, [])
         self.assertIsNone(self.app.resume_folder)
-        self.assertEqual(self.rows(), [("1", LINKS[0], "Not imported"), ("2", LINKS[1], "Not imported")])
+        self.assertEqual(self.rows(), [("1", LINKS[0], "Not imported", "Pending"), ("2", LINKS[1], "Not imported", "Pending")])
         self.assertEqual(str(self.app.import_button["state"]), "normal")
 
     def test_new_links_while_picker_is_open_prevent_stale_resume_assignment(self):

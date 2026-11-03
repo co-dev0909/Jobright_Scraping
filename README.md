@@ -8,6 +8,8 @@ Use **Download job links** in the popup to automatically scroll your current fil
 
 In the companion Windows app, use **Export job links** to open the downloaded TXT file and load its links into the job list.
 
+Kula APP also includes **Start**/**Stop** application automation with the Jobright runner and a new **Kula ChatGPT Connector** extension. See the [automation setup and supported forms](docs/automation.md). Start submits completed applications automatically using the matched resume and saved profile.
+
 **Already installed?** At `chrome://extensions`, click the reload button on **Jobright Apply Filter**, then refresh your Jobright tabs. Duplicate filtering starts automatically.
 
 ## Install in Chrome
@@ -48,9 +50,9 @@ Kula APP is a Windows x64 desktop app included in this repository. Its **Export 
 
 TXT files contain one HTTPS Jobright job URL per line. Kula APP preserves line order and duplicate entries, ignores blank lines, and validates the whole file before replacing the list. Canceling, unreadable files, empty files, and invalid links leave the previous list intact. UTF-8 (including BOM) and UTF-16 with BOM are supported, up to 5 MB and 10000 links. Jobs and resume assignments are kept in memory and start empty when the app restarts.
 
-This workflow uses local files. The extension has only its storage permission, and Kula APP opens no local connection or listening port.
+TXT loading, resume importing, and profile saving work with local files. For optional Start automation, the app opens an authenticated connection on `127.0.0.1:43127`, and the extensions use it to exchange browser commands. The Jobright runner requests HTTPS application-site access when you connect it; filter/download features remain available without starting automation.
 
-The **Build Kula APP for Windows** GitHub Actions workflow builds a package containing the Windows executable and matching extension. After a successful run, the downloadable artifact is named **KulaAPP-windows-x64**.
+The **Build Kula APP for Windows** GitHub Actions workflow builds a package containing the Windows executable, both matching extensions, and an automation guide. After a successful run, the downloadable artifact is named **KulaAPP-windows-x64**.
 
 In Kula APP's **Jobs** tab, click **Import Resumes** to select a folder with one PDF per job link. Files are paired in natural filename order (`name.pdf`, `name (1).pdf`, `name (2).pdf`, …), and the table displays each pairing for review. A count mismatch leaves the previous import intact; new job batches clear the old resume assignments.
 
@@ -69,7 +71,7 @@ The **Package** tab saves your Full Name, LinkedIn Info, US Citizen answer, Not 
 
 Duplicate detection only compares cards currently in the page. It does not save a history of jobs or suppress matching jobs across tabs or after navigating to a different page.
 
-The extension does not apply for jobs or modify account data. It stores the two filter preferences in browser storage and runs its page script only on Jobright. Downloaded job links are saved to a local text file. Website totals can still include the cards hidden by the extension.
+The filtering and download features hide cards locally and save job links to a text file. Application actions run when Kula APP starts an authenticated automation run; completed forms are submitted automatically. Browser storage holds filter preferences and the automation connection settings. Website totals can still include the cards hidden by the extension.
 
 ## If a card is still visible
 
@@ -101,4 +103,4 @@ Run Kula APP's TXT loading, resume import, and profile tests:
 python -m unittest discover -s kula-app/tests -p "test_*.py" -v
 ```
 
-The browser tests use representative local pages rather than your Jobright account, including dynamically loaded and virtualized job lists and popup downloads. Graphical Python tests require a desktop session (or a virtual display on Linux). Kula APP uses Python's standard library at runtime, with PyInstaller used only for packaging. GitHub Actions builds and smoke-tests the Windows executable; Linux builds are useful for local validation but do not produce a Windows executable.
+Additional automation tests exercise the authenticated command channel, sequential runs, submission history, and browser adapters. Graphical Python tests require a desktop session (or a virtual display on Linux). Kula APP uses Python's standard library at runtime, with PyInstaller used only for packaging. GitHub Actions builds and smoke-tests the Windows executable; Linux builds are useful for local validation but do not produce a Windows executable. Tests use local fixtures and do not submit real job applications.

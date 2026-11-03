@@ -1,9 +1,12 @@
 {
   "manifest_version": 3,
   "name": "Jobright Apply Filter",
-  "version": "1.4.0",
-  "description": "Hide APPLY NOW jobs and duplicate Jobright cards, and download links from your filtered job list.",
-  "permissions": ["storage"],
+  "version": "1.5.0",
+  "description": "Filter and download Jobright links, and run applications started in Kula APP.",
+  "permissions": ["storage", "scripting", "tabs", "alarms"],
+  "host_permissions": ["http://127.0.0.1/*", "https://jobright.ai/*", "https://www.jobright.ai/*"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": { "service_worker": "runner-worker.js" },
   "action": {
     "default_title": "Jobright Apply Filter",
     "default_popup": "popup.html"

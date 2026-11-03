@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Kula ChatGPT Connector</title><link rel="stylesheet" href="popup.css"><script src="popup.js" defer></script></head>
+<body><main>
+  <h1>Kula ChatGPT Connector</h1>
+  <p>Keep this browser signed in to ChatGPT. Kula APP opens a separate ChatGPT tab to answer questions using the current resume and saved profile.</p>
+  <label for="pairing-key">Kula APP pairing key</label>
+  <input id="pairing-key" type="password" maxlength="64" autocomplete="off" spellcheck="false">
+  <button id="connect" type="button">Connect to Kula APP</button>
+  <button id="disconnect" type="button" class="secondary">Disconnect</button>
+  <p id="status" role="status" aria-live="polite">Loading connection status…</p>
+  <p class="hint">Copy the key from Kula APP's automation connection settings. Start and Stop are controlled from the app. Missing facts and unsupported pages are reported for attention.</p>
+</main></body></html>

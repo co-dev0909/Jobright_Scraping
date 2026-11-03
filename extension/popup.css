@@ -169,6 +169,14 @@ input:disabled + .switch-track { opacity: 0.5; }
 .download-status { margin: 10px 0 0; min-height: 0; }
 .download-status:empty { display: none; }
 
+.runner-connection { margin-top: 18px; padding-top: 15px; border-top: 1px solid #e5ece8; }
+.runner-connection summary { cursor: pointer; font-weight: 650; }
+.runner-connection label { display: block; margin-top: 12px; font-size: 12px; }
+#runner-key { width: 100%; margin: 6px 0 8px; padding: 8px; border: 1px solid #bfd2c7; border-radius: 6px; }
+#runner-connect { margin-top: 10px; }
+.runner-secondary { width: 100%; margin-top: 8px; padding: 8px; background: #e9f5ee; color: #22563e; border: 0; border-radius: 6px; cursor: pointer; }
+#runner-status { margin-bottom: 0; min-height: 0; }
+
 .footer {
   margin: 15px 0 0;
   color: #607269;

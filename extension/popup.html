@@ -6,6 +6,7 @@
     <title>Jobright Apply Filter</title>
     <link rel="stylesheet" href="popup.css">
     <script src="popup.js" defer></script>
+    <script src="runner-popup.js" defer></script>
   </head>
   <body>
     <main>
@@ -49,6 +50,16 @@
         <p id="download-status" class="status download-status" role="status" aria-live="polite"></p>
       </section>
 
+      <details class="runner-connection">
+        <summary>Application runner</summary>
+        <p class="download-hint">Copy the automation key from Kula APP, then connect this browser. Start and stop applications in the Windows app.</p>
+        <label for="runner-key">Automation key</label>
+        <input id="runner-key" type="password" autocomplete="off" spellcheck="false" maxlength="64">
+        <p class="download-hint">Connecting requests access to HTTPS application pages so the runner can fill the application tabs it opens.</p>
+        <button id="runner-connect" class="action-button" type="button">Connect application browser</button>
+        <button id="runner-disconnect" class="runner-secondary" type="button">Disconnect runner</button>
+        <p id="runner-status" class="status" role="status" aria-live="polite">Runner not connected.</p>
+      </details>
       <p class="footer">Your choices are saved and apply across Jobright tabs. Duplicate matching uses the job link, or its title, company, and location.</p>
     </main>
   </body>
