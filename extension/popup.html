@@ -44,21 +44,10 @@
       </div>
 
       <section class="download-section" aria-label="Export filtered jobs">
-        <button id="send-to-kula-app" class="action-button" type="button" aria-describedby="download-hint kula-status">Send to Kula APP</button>
-        <p id="kula-status" class="status action-status" role="status" aria-live="polite"></p>
-        <button id="download-job-links" class="action-button secondary" type="button" aria-describedby="download-hint download-status">Download job links</button>
-        <p id="download-hint" class="download-hint">Both buttons automatically scroll through your current filtered results. Keep this popup open and leave your filters unchanged while collecting. Sending replaces the job list in Kula APP.</p>
+        <button id="download-job-links" class="action-button" type="button" aria-describedby="download-hint download-status">Download job links</button>
+        <p id="download-hint" class="download-hint">Automatically scroll through your current filtered results and save job links to a text file. Keep this popup open and leave your filters unchanged while collecting.</p>
         <p id="download-status" class="status download-status" role="status" aria-live="polite"></p>
       </section>
-
-      <details class="kula-connection">
-        <summary>Connect to Kula APP</summary>
-        <p class="download-hint">Open Kula APP on this computer, copy its pairing key, then paste and save it here once.</p>
-        <label for="kula-pairing-key">Pairing key</label>
-        <input id="kula-pairing-key" type="password" autocomplete="off" spellcheck="false" maxlength="64" aria-describedby="kula-connection-status">
-        <button id="save-kula-connection" class="action-button secondary" type="button">Save connection</button>
-        <p id="kula-connection-status" class="status action-status" role="status" aria-live="polite"></p>
-      </details>
 
       <p class="footer">Your choices are saved and apply across Jobright tabs. Duplicate matching uses the job link, or its title, company, and location.</p>
     </main>

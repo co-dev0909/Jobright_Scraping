@@ -158,9 +158,6 @@ input:disabled + .switch-track { opacity: 0.5; }
 .action-button:hover:not(:disabled) { background: #066b47; }
 .action-button:focus-visible { outline: 3px solid #244fb3; outline-offset: 3px; }
 .action-button:disabled { opacity: 0.6; cursor: wait; }
-.action-button.secondary { color: #08704c; background: #e9f5ee; }
-.action-button.secondary:hover:not(:disabled) { background: #d9ece0; }
-#download-job-links { margin-top: 9px; }
 
 .download-hint {
   margin: 9px 0 0;
@@ -171,27 +168,6 @@ input:disabled + .switch-track { opacity: 0.5; }
 
 .download-status { margin: 10px 0 0; min-height: 0; }
 .download-status:empty { display: none; }
-
-.action-status { margin: 10px 0 0; min-height: 0; }
-.action-status:empty { display: none; }
-
-.kula-connection {
-  margin-top: 17px;
-  padding-top: 15px;
-  border-top: 1px solid #e5ece8;
-}
-
-.kula-connection summary { cursor: pointer; font-weight: 650; }
-.kula-connection label { display: block; margin: 12px 0 5px; font-size: 12px; }
-#kula-pairing-key {
-  width: 100%;
-  padding: 9px;
-  margin-bottom: 9px;
-  border: 1px solid #b1beb7;
-  border-radius: 6px;
-  font: inherit;
-}
-#kula-pairing-key:focus-visible { outline: 2px solid #244fb3; outline-offset: 2px; }
 
 .footer {
   margin: 15px 0 0;

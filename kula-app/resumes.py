@@ -40,7 +40,7 @@ def discover_resume_pdfs(folder: Path | str, expected_count: int) -> list[Path]:
     returned and none of the user's files are changed.
     """
     if type(expected_count) is not int or expected_count < 1:
-        raise ResumeImportError("Receive job links in Kula APP before importing resumes.")
+        raise ResumeImportError("Load job links in Kula APP before importing resumes.")
     if isinstance(folder, str) and not folder.strip():
         raise ResumeImportError("Select a folder containing your resume PDFs.")
 

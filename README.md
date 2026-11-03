@@ -6,7 +6,7 @@ Both filters are on by default. Use the extension's toolbar popup to switch **Hi
 
 Use **Download job links** in the popup to automatically scroll your current filtered Jobright list and save eligible job links to a text file.
 
-Use **Send to Kula APP** to replace the job-link list in the companion Windows app with your current filtered results.
+In the companion Windows app, use **Export job links** to open the downloaded TXT file and load its links into the job list.
 
 **Already installed?** At `chrome://extensions`, click the reload button on **Jobright Apply Filter**, then refresh your Jobright tabs. Duplicate filtering starts automatically.
 
@@ -36,21 +36,21 @@ Collection stops after the bottom stays quiet for about four seconds, or after t
 
 The download uses your open Jobright tab. No new permissions, backend, or account credentials are required. If you just updated the extension, reload it at `chrome://extensions` and refresh your Jobright tab before downloading.
 
-## Send links to Kula APP
+## Load a TXT file in Kula APP
 
-Kula APP is a Windows x64 desktop app included in this repository. Each successful send **clears the previous list and replaces it with the newly collected links**. Invalid batches and failed collections leave the previous list in place. Empty results do not clear the app.
+Kula APP is a Windows x64 desktop app included in this repository. Its **Export job links** button opens a TXT file picker and loads the selected file into the Jobs table. Each successful load **replaces the previous list and clears its resume assignments**.
 
 1. Download and open **KulaAPP.exe** using the [Windows app instructions](kula-app/README.md). The Python-based executable includes everything needed to run; no Python, .NET, or SDK installation is required.
-2. Reload the updated extension at `chrome://extensions`, accept the new local connection permission if prompted, and refresh Jobright.
-3. In Kula APP, click **Copy pairing key**. In the extension popup, open **Connect to Kula APP**, paste the key, and click **Save connection**. Do this once per browser profile.
-4. Choose the filters you want on Jobright. Keep Kula APP open, click **Send to Kula APP**, and keep the popup open while it collects and sends links.
-5. Kula APP replaces its list, and the extension confirms the received link count. A second send replaces that list again rather than appending.
+2. Reload the updated extension at `chrome://extensions` and refresh Jobright.
+3. Choose your Jobright filters, then use **Download job links** in the extension to save `jobright-job-links.txt`.
+4. In Kula APP's **Jobs** tab, click **Export job links** and select that TXT file.
+5. Check the loaded links, then import the matching resume folder.
 
-The same collection rules and limits described above apply. If a send times out or the acknowledgement is lost, check Kula APP's list before retrying. The list is kept in memory and starts empty when the app restarts.
+TXT files contain one HTTPS Jobright job URL per line. Kula APP preserves line order and duplicate entries, ignores blank lines, and validates the whole file before replacing the list. Canceling, unreadable files, empty files, and invalid links leave the previous list intact. UTF-8 (including BOM) and UTF-16 with BOM are supported, up to 5 MB and 10000 links. Jobs and resume assignments are kept in memory and start empty when the app restarts.
 
-This version adds access to `http://127.0.0.1/*` for the connection. The extension sends only to the fixed local endpoint `http://127.0.0.1:43127/v1/job-links`. Kula APP listens only on this computer and requires the saved pairing key. The app does not need your Jobright credentials. Keep the pairing key private.
+This workflow uses local files. The extension has only its storage permission, and Kula APP opens no local connection or listening port.
 
-The **Build Kula APP for Windows** GitHub Actions workflow builds a package containing the Windows executable and matching extension. After a successful run, the downloadable artifact is named **KulaAPP-windows-x64**. A second extension can use the same local protocol when its behavior is defined; this first version implements the Jobright-to-app flow.
+The **Build Kula APP for Windows** GitHub Actions workflow builds a package containing the Windows executable and matching extension. After a successful run, the downloadable artifact is named **KulaAPP-windows-x64**.
 
 In Kula APP's **Jobs** tab, click **Import Resumes** to select a folder with one PDF per job link. Files are paired in natural filename order (`name.pdf`, `name (1).pdf`, `name (2).pdf`, …), and the table displays each pairing for review. A count mismatch leaves the previous import intact; new job batches clear the old resume assignments.
 
@@ -69,7 +69,7 @@ The **Package** tab saves your Full Name, LinkedIn Info, US Citizen answer, Not 
 
 Duplicate detection only compares cards currently in the page. It does not save a history of jobs or suppress matching jobs across tabs or after navigating to a different page.
 
-The extension does not apply for jobs or modify account data. It stores the two preferences and the local Kula pairing key in browser storage, and runs its page script only on Jobright. Job links are sent to the local Kula APP only when you click **Send to Kula APP**. Website totals can still include the cards hidden by the extension.
+The extension does not apply for jobs or modify account data. It stores the two filter preferences in browser storage and runs its page script only on Jobright. Downloaded job links are saved to a local text file. Website totals can still include the cards hidden by the extension.
 
 ## If a card is still visible
 
@@ -95,12 +95,10 @@ On Linux, use Node.js 22 or newer and a Chromium-compatible browser:
 EDGE_PATH=/usr/bin/chromium node --test tests/browser.test.mjs
 ```
 
-Run the connection-worker tests, the Python receiver tests, and the actual worker-to-app integration test:
+Run Kula APP's TXT loading, resume import, and profile tests:
 
 ```bash
-node --test tests/kula-bridge.test.mjs
 python -m unittest discover -s kula-app/tests -p "test_*.py" -v
-node --test tests/kula-python-integration.test.mjs
 ```
 
-The browser tests use representative local pages rather than your Jobright account, including dynamically loaded and virtualized job lists and popup download/send flows. Receiver integration tests exercise real local HTTP transfers, validation, replacement, and acknowledgement behavior. Kula APP uses Python's standard library at runtime, with PyInstaller used only for packaging. GitHub Actions builds and smoke-tests the Windows executable; Linux builds are useful for local validation but do not produce a Windows executable.
+The browser tests use representative local pages rather than your Jobright account, including dynamically loaded and virtualized job lists and popup downloads. Graphical Python tests require a desktop session (or a virtual display on Linux). Kula APP uses Python's standard library at runtime, with PyInstaller used only for packaging. GitHub Actions builds and smoke-tests the Windows executable; Linux builds are useful for local validation but do not produce a Windows executable.

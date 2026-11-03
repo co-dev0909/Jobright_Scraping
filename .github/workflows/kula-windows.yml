@@ -6,7 +6,6 @@ on:
     paths:
       - 'kula-app/**'
       - 'extension/**'
-      - 'tests/kula*.test.mjs'
       - '.github/workflows/kula-windows.yml'
   workflow_dispatch:
 
@@ -24,13 +23,8 @@ jobs:
         with:
           python-version: '3.12'
           architecture: 'x64'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-      - name: Test the app and local connection
+      - name: Test the app
         run: python -m unittest discover -s kula-app/tests -p "test_*.py" -v
-      - name: Test extension transfers against the Python app
-        run: node --test tests/kula-bridge.test.mjs tests/kula-python-integration.test.mjs
       - name: Test the Windows UI
         run: python kula-app/kula_app.py --smoke-test
       - name: Build Windows executable

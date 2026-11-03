@@ -26,9 +26,7 @@ class ResumeUITests(unittest.TestCase):
         self.folder.mkdir()
         self.root = tk.Tk()
         self.root.withdraw()
-        self.app = KulaApp(self.root, pairing_key="a" * 64, port=0,
-                           profile_store=ProfileStore(Path(self.temp.name) / "profile"))
-        self.assertIsNone(self.app.startup_error)
+        self.app = KulaApp(self.root, profile_store=ProfileStore(Path(self.temp.name) / "profile"))
         for name in ("01.pdf", "02.pdf"):
             (self.folder / name).write_bytes(PDF)
 

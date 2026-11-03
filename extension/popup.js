@@ -8,12 +8,6 @@
   const status = document.getElementById("filter-status");
   const downloadButton = document.getElementById("download-job-links");
   const downloadStatus = document.getElementById("download-status");
-  const sendButton = document.getElementById("send-to-kula-app");
-  const kulaStatus = document.getElementById("kula-status");
-  const pairingKeyInput = document.getElementById("kula-pairing-key");
-  const saveConnectionButton = document.getElementById("save-kula-connection");
-  const connectionStatus = document.getElementById("kula-connection-status");
-  const validPairingKey = (value) => typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
   let collecting = false;
   const savedPreferences = { hideApplyNow: true, hideDuplicates: true };
 
@@ -27,13 +21,11 @@
     element.classList.toggle("error", error);
   }
 
-  function setCollecting(active, button) {
+  function setCollecting(active) {
     collecting = active;
     downloadButton.disabled = active;
-    sendButton.disabled = active;
-    saveConnectionButton.disabled = active;
-    if (active) button.setAttribute("aria-busy", "true");
-    else button.removeAttribute("aria-busy");
+    if (active) downloadButton.setAttribute("aria-busy", "true");
+    else downloadButton.removeAttribute("aria-busy");
   }
 
   function collectionNote(result) {
@@ -86,67 +78,23 @@
     }
   }
 
-  async function runCollection(target) {
+  async function runCollection() {
     if (collecting) return;
-    const sending = target === "kula";
-    const button = sending ? sendButton : downloadButton;
-    const output = sending ? kulaStatus : downloadStatus;
-    setCollecting(true, button);
+    setCollecting(true);
     try {
-      if (sending) {
-        const { kulaPairingKey } = await chrome.storage.local.get({ kulaPairingKey: "" });
-        if (!validPairingKey(kulaPairingKey)) {
-          document.querySelector(".kula-connection").open = true;
-          throw new Error("Connect to Kula APP first: copy its pairing key, paste it below, and save the connection.");
-        }
-      }
-      showActionStatus(output, "Scrolling and collecting job links… Keep this popup open and leave your filters unchanged.");
+      showActionStatus(downloadStatus, "Scrolling and collecting job links… Keep this popup open and leave your filters unchanged.");
       const result = await collectLinks();
-      if (sending) {
-        showActionStatus(output, "Sending job links to Kula APP… Keep this popup open.");
-        let reply;
-        try {
-          reply = await chrome.runtime.sendMessage({ type: "SEND_TO_KULA", links: result.links });
-        } catch {
-          throw new Error("Could not reach the Kula connection. Reload the extension and try again.");
-        }
-        if (reply?.error) throw new Error(reply.error);
-        if (reply?.ok !== true || reply.count !== result.links.length) {
-          throw new Error("Kula APP did not confirm this batch. Check its list before sending again.");
-        }
-        showActionStatus(output, `Kula APP list replaced with ${reply.count} job link${reply.count === 1 ? "" : "s"}. ${collectionNote(result)}`);
-      } else {
-        downloadLinks(result.links);
-        const count = result.links.length;
-        showActionStatus(output, `Download started: ${count} job link${count === 1 ? "" : "s"}. ${collectionNote(result)}`);
-      }
+      downloadLinks(result.links);
+      const count = result.links.length;
+      showActionStatus(downloadStatus, `Download started: ${count} job link${count === 1 ? "" : "s"}. ${collectionNote(result)}`);
     } catch (error) {
-      showActionStatus(output, error instanceof Error ? error.message : "Could not collect job links. Please try again.", true);
+      showActionStatus(downloadStatus, error instanceof Error ? error.message : "Could not collect job links. Please try again.", true);
     } finally {
-      setCollecting(false, button);
+      setCollecting(false);
     }
   }
 
-  downloadButton.addEventListener("click", () => { void runCollection("download"); });
-  sendButton.addEventListener("click", () => { void runCollection("kula"); });
-
-  saveConnectionButton.addEventListener("click", async () => {
-    const key = pairingKeyInput.value.trim();
-    if (!validPairingKey(key)) {
-      showActionStatus(connectionStatus, "Paste the full 64-character pairing key copied from Kula APP.", true);
-      return;
-    }
-    saveConnectionButton.disabled = true;
-    try {
-      await chrome.storage.local.set({ kulaPairingKey: key });
-      pairingKeyInput.value = "";
-      showActionStatus(connectionStatus, "Pairing key saved. Keep Kula APP open, then send your job links.");
-    } catch {
-      showActionStatus(connectionStatus, "Could not save the pairing key. Please try again.", true);
-    } finally {
-      saveConnectionButton.disabled = collecting;
-    }
-  });
+  downloadButton.addEventListener("click", () => { void runCollection(); });
 
   function showPreferences(values) {
     for (const [key, toggle] of Object.entries(toggles)) {
@@ -180,11 +128,8 @@
 
   async function initialize() {
     try {
-      const settings = await chrome.storage.local.get({ hideApplyNow: true, hideDuplicates: true, kulaPairingKey: "" });
+      const settings = await chrome.storage.local.get({ hideApplyNow: true, hideDuplicates: true });
       showPreferences(settings);
-      showActionStatus(connectionStatus, validPairingKey(settings.kulaPairingKey)
-        ? "Pairing key saved. Keep Kula APP open when sending."
-        : "Not connected yet. Copy the pairing key from Kula APP to connect.");
       for (const toggle of Object.values(toggles)) {
         toggle.disabled = false;
       }
