@@ -6,15 +6,20 @@ import argparse
 from dataclasses import dataclass, field
 from http.client import HTTPConnection
 import json
+from pathlib import Path
 import queue
 import secrets
+import tempfile
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, ttk
 
 from bridge import BridgeServer
 from pairing import load_or_create_key
+from profile_tab import ProfileTab
+from profile_store import ProfileStore
+from resumes import ResumeImportError, assign_resumes
 
 
 @dataclass
@@ -27,9 +32,14 @@ class _Replacement:
 class KulaApp:
     """Marshal complete receiver batches onto Tk's main thread before ack."""
 
-    def __init__(self, root: tk.Tk, *, pairing_key: str | None = None, port: int = 43127) -> None:
+    def __init__(self, root: tk.Tk, *, pairing_key: str | None = None, port: int = 43127,
+                 profile_store: ProfileStore | None = None) -> None:
         self.root = root
         self.links: list[str] = []
+        self.resume_paths: list[Path] = []
+        self.resume_folder: Path | None = None
+        self._link_revision = 0
+        self._importing = False
         self.bridge: BridgeServer | None = None
         self.startup_error: Exception | None = None
         self._pairing_key = pairing_key
@@ -51,10 +61,16 @@ class KulaApp:
         style.configure("TLabel", background="#fbfdfc", foreground="#15392e", font=("Segoe UI", 10))
         style.configure("Title.TLabel", font=("Segoe UI", 23, "bold"))
         style.configure("TButton", padding=(10, 7), font=("Segoe UI", 10))
-        frame = ttk.Frame(root, padding=22)
+        self.tabs = ttk.Notebook(root)
+        self.tabs.pack(fill="both", expand=True)
+        self.jobs_tab = ttk.Frame(self.tabs)
+        self.tabs.add(self.jobs_tab, text="Jobs")
+        self.package_tab = ProfileTab(self.tabs, store=profile_store)
+        self.tabs.add(self.package_tab, text="Package")
+        frame = ttk.Frame(self.jobs_tab, padding=22)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(6, weight=1)
+        frame.rowconfigure(7, weight=1)
         ttk.Label(frame, text="Kula APP", style="Title.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 8))
         ttk.Label(frame, text="Receive filtered job links from your browser extension.").grid(row=1, column=0, sticky="w", pady=(0, 15))
         self.connection_status = tk.StringVar(value="Starting local connection…")
@@ -68,17 +84,28 @@ class KulaApp:
             wraplength=850,
         ).grid(row=4, column=0, sticky="w", pady=(0, 20))
         self.job_count = tk.StringVar(value="0 job links")
-        ttk.Label(frame, textvariable=self.job_count).grid(row=5, column=0, sticky="w", pady=(0, 8))
+        toolbar = ttk.Frame(frame)
+        toolbar.grid(row=5, column=0, sticky="ew", pady=(0, 8))
+        toolbar.columnconfigure(0, weight=1)
+        ttk.Label(toolbar, textvariable=self.job_count).grid(row=0, column=0, sticky="w")
+        self.import_button = ttk.Button(toolbar, text="Import Resumes", command=self.import_resumes, state="disabled")
+        self.import_button.grid(row=0, column=1, sticky="e")
+        self.resume_status = tk.StringVar(value="Receive job links first, then import the matching resume PDFs.")
+        ttk.Label(frame, textvariable=self.resume_status, wraplength=850).grid(row=6, column=0, sticky="w", pady=(0, 8))
         list_frame = ttk.Frame(frame)
-        list_frame.grid(row=6, column=0, sticky="nsew", pady=(0, 12))
+        list_frame.grid(row=7, column=0, sticky="nsew", pady=(0, 12))
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(0, weight=1)
-        self._list_values = tk.StringVar(value=())
-        self.job_list = tk.Listbox(
-            list_frame, listvariable=self._list_values, font=("Segoe UI", 10),
-            background="#ffffff", foreground="#15392e", selectbackground="#087f55",
-            borderwidth=1, relief="solid", activestyle="none", exportselection=False,
-        )
+        style.configure("Treeview", font=("Segoe UI", 10), rowheight=27,
+                        background="#ffffff", foreground="#15392e", fieldbackground="#ffffff")
+        self.job_list = ttk.Treeview(list_frame, columns=("number", "job", "resume"), show="headings", selectmode="browse")
+        self.job_table = self.job_list
+        self.job_list.heading("number", text="#")
+        self.job_list.heading("job", text="Job link")
+        self.job_list.heading("resume", text="Resume PDF")
+        self.job_list.column("number", width=45, minwidth=40, stretch=False, anchor="center")
+        self.job_list.column("job", width=480, minwidth=250)
+        self.job_list.column("resume", width=280, minwidth=150)
         vertical = ttk.Scrollbar(list_frame, orient="vertical", command=self.job_list.yview)
         horizontal = ttk.Scrollbar(list_frame, orient="horizontal", command=self.job_list.xview)
         self.job_list.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
@@ -86,7 +113,7 @@ class KulaApp:
         vertical.grid(row=0, column=1, sticky="ns")
         horizontal.grid(row=1, column=0, sticky="ew")
         self.transfer_status = tk.StringVar(value="Waiting for job links. The next received batch will replace this list.")
-        ttk.Label(frame, textvariable=self.transfer_status, wraplength=850).grid(row=7, column=0, sticky="w")
+        ttk.Label(frame, textvariable=self.transfer_status, wraplength=850).grid(row=8, column=0, sticky="w")
         root.after(25, self._process_replacements)
         self._start_bridge()
 
@@ -139,21 +166,103 @@ class KulaApp:
 
     def _apply_links(self, links: list[str]) -> None:
         previous = self.links
+        previous_resumes = self.resume_paths
+        previous_folder = self.resume_folder
+        previous_resume_status = self.resume_status.get()
         previous_count = self.job_count.get()
         previous_status = self.transfer_status.get()
         try:
-            # Setting the Tcl list replaces its contents in one UI operation.
-            self._list_values.set(tuple(links))
+            self._render_rows(links, [])
             self.job_count.set(f"{len(links):,} job link{'' if len(links) == 1 else 's'}")
             self.transfer_status.set("Received from your extension. The previous list was replaced.")
+            self.resume_status.set("No resumes imported. PDFs match jobs by filename order: name.pdf, name (1).pdf, name (2).pdf. Review the pairings below.")
             self.links = list(links)
+            self.resume_paths = []
+            self.resume_folder = None
             self.job_list.yview_moveto(0)
+            self._update_import_button()
         except Exception:
-            self._list_values.set(tuple(previous))
+            self._render_rows(previous, previous_resumes)
             self.job_count.set(previous_count)
             self.transfer_status.set(previous_status)
+            self.resume_status.set(previous_resume_status)
             self.links = previous
+            self.resume_paths = previous_resumes
+            self.resume_folder = previous_folder
+            self._update_import_button()
             raise
+        self._link_revision += 1
+
+    def _render_rows(self, links: list[str], resume_paths: list[Path]) -> None:
+        self.job_list.delete(*self.job_list.get_children())
+        for index, link in enumerate(links):
+            filename = resume_paths[index].name if index < len(resume_paths) else "Not imported"
+            self.job_list.insert("", "end", iid=str(index), values=(index + 1, link, filename))
+
+    def _update_import_button(self) -> None:
+        enabled = bool(self.links) and not self._importing and not self._closing.is_set()
+        self.import_button.configure(state="normal" if enabled else "disabled")
+
+    def import_resumes(self) -> None:
+        """Choose a resume folder without changing existing bindings on cancel."""
+        if self._closing.is_set() or self._importing:
+            return
+        if not self.links:
+            self.resume_status.set("Receive job links before importing resumes.")
+            return
+        expected_links = list(self.links)
+        expected_revision = self._link_revision
+        self._importing = True
+        self._update_import_button()
+        try:
+            folder = filedialog.askdirectory(parent=self.root, title="Select the folder containing your resume PDFs", mustexist=True)
+            if not folder or self._closing.is_set():
+                return
+            self._apply_resume_folder(folder, expected_links, expected_revision=expected_revision)
+        except tk.TclError:
+            if not self._closing.is_set():
+                self.resume_status.set("Could not open the folder picker. Please try importing resumes again.")
+        finally:
+            self._importing = False
+            if not self._closing.is_set():
+                self._update_import_button()
+
+    def _apply_resume_folder(self, folder: str | Path, expected_links: list[str] | None = None,
+                             *, expected_revision: int | None = None) -> bool:
+        """Validate a complete folder before committing any job/resume pairing."""
+        if self._closing.is_set():
+            return False
+        links = list(self.links if expected_links is None else expected_links)
+        if links != self.links or (expected_revision is not None and expected_revision != self._link_revision):
+            self.resume_status.set("The job list changed while choosing a folder. Import resumes again for the current batch.")
+            return False
+        try:
+            if not links:
+                raise ResumeImportError("Receive job links before importing resumes.")
+            replacement = assign_resumes(folder, links)
+            selected_folder = Path(folder).resolve()
+        except (ResumeImportError, OSError) as error:
+            self.resume_status.set(f"Resumes were not imported: {error}")
+            return False
+        if links != self.links or (expected_revision is not None and expected_revision != self._link_revision):
+            self.resume_status.set("The job list changed while checking the folder. Import resumes again for the current batch.")
+            return False
+
+        previous_paths = self.resume_paths
+        previous_folder = self.resume_folder
+        previous_status = self.resume_status.get()
+        try:
+            self._render_rows(self.links, replacement)
+            self.resume_status.set(f"Imported {len(replacement):,} resume PDF{'s' if len(replacement) != 1 else ''} in filename order. Check each job/resume pairing below.")
+            self.resume_paths = list(replacement)
+            self.resume_folder = selected_folder
+        except Exception:
+            self._render_rows(self.links, previous_paths)
+            self.resume_status.set(previous_status)
+            self.resume_paths = previous_paths
+            self.resume_folder = previous_folder
+            raise
+        return True
 
     def _copy_pairing_key(self) -> None:
         if self._pairing_key is None or self._closing.is_set():
@@ -170,6 +279,7 @@ class KulaApp:
             return
         self._closing.set()
         self.copy_button.configure(state="disabled")
+        self.import_button.configure(state="disabled")
         self.connection_status.set("Stopping local connection…")
         with self._pending_lock:
             for replacement in self._pending.values():
@@ -197,14 +307,16 @@ class KulaApp:
 
 
 def smoke_test() -> int:
-    """Exercise bundled Tcl/Tk and real receiver-to-UI replacement without persistence."""
+    """Exercise the bundled GUI, local receiver, and resume import in isolation."""
+    temporary = tempfile.TemporaryDirectory(prefix="kula-smoke-")
+    smoke_folder = Path(temporary.name)
     root = tk.Tk()
     root.withdraw()
     key = secrets.token_hex(32)
-    app = KulaApp(root, pairing_key=key, port=0)
+    app = KulaApp(root, pairing_key=key, port=0, profile_store=ProfileStore(smoke_folder / "profile"))
     finished = threading.Event()
     failures: list[Exception] = []
-    expected = ["https://jobright.ai/jobs/info/smoke-final"]
+    expected = ["https://jobright.ai/jobs/info/smoke-final-one", "https://jobright.ai/jobs/info/smoke-final-two"]
 
     def send_batches() -> None:
         try:
@@ -231,9 +343,41 @@ def smoke_test() -> int:
 
     def check_result() -> None:
         if finished.is_set():
-            if app.links != expected or tuple(app.job_list.get(0, tk.END)) != tuple(expected):
-                failures.append(RuntimeError("The smoke-test list was not replaced."))
-            app.close()
+            try:
+                rows = [app.job_list.item(item, "values") for item in app.job_list.get_children()]
+                if app.links != expected or [row[1] for row in rows] != expected:
+                    raise RuntimeError("The smoke-test list was not replaced.")
+                resumes = smoke_folder / "resumes"
+                resumes.mkdir()
+                for filename in ("name.pdf", "name (1).pdf"):
+                    (resumes / filename).write_bytes(b"%PDF-1.7\n%%EOF\n")
+                if not app._apply_resume_folder(resumes):
+                    raise RuntimeError("The smoke-test resumes could not be imported.")
+                if [path.name for path in app.resume_paths] != ["name.pdf", "name (1).pdf"]:
+                    raise RuntimeError("The smoke-test resumes were not matched in filename order.")
+                rows = [app.job_list.item(item, "values") for item in app.job_list.get_children()]
+                if [row[2] for row in rows] != ["name.pdf", "name (1).pdf"]:
+                    raise RuntimeError("The resume table did not display the imported filenames.")
+                invalid_folder = smoke_folder / "mismatched-resumes"
+                invalid_folder.mkdir()
+                (invalid_folder / "name.pdf").write_bytes(b"%PDF-1.7\n%%EOF\n")
+                previous_paths = list(app.resume_paths)
+                if app._apply_resume_folder(invalid_folder) or app.resume_paths != previous_paths:
+                    raise RuntimeError("A mismatched resume count changed the previous import.")
+                app._apply_links(expected)
+                if app.resume_paths or app.resume_folder is not None:
+                    raise RuntimeError("A new job batch did not clear previous resume pairings.")
+                if [app.tabs.tab(tab, "text") for tab in app.tabs.tabs()] != ["Jobs", "Package"]:
+                    raise RuntimeError("The Jobs and Package tabs were not available.")
+                app.package_tab.fields["full_name"].set("Kula Smoke Test")
+                app.package_tab.save_profile()
+                saved_profile = app.package_tab.store.load()
+                if saved_profile["full_name"] != "Kula Smoke Test" or saved_profile["us_citizen"] != "Not specified":
+                    raise RuntimeError("The Package profile did not save with explicit answers preserved.")
+            except Exception as error:
+                failures.append(error)
+            finally:
+                app.close()
         elif time.monotonic() >= deadline:
             failures.append(RuntimeError("The smoke test timed out."))
             app.close()
@@ -241,7 +385,10 @@ def smoke_test() -> int:
             root.after(25, check_result)
 
     root.after(25, check_result)
-    root.mainloop()
+    try:
+        root.mainloop()
+    finally:
+        temporary.cleanup()
     return 1 if failures else 0
 
 

@@ -52,6 +52,10 @@ This version adds access to `http://127.0.0.1/*` for the connection. The extensi
 
 The **Build Kula APP for Windows** GitHub Actions workflow builds a package containing the Windows executable and matching extension. After a successful run, the downloadable artifact is named **KulaAPP-windows-x64**. A second extension can use the same local protocol when its behavior is defined; this first version implements the Jobright-to-app flow.
 
+In Kula APP's **Jobs** tab, click **Import Resumes** to select a folder with one PDF per job link. Files are paired in natural filename order (`name.pdf`, `name (1).pdf`, `name (2).pdf`, …), and the table displays each pairing for review. A count mismatch leaves the previous import intact; new job batches clear the old resume assignments.
+
+The **Package** tab saves your Full Name, LinkedIn Info, US Citizen answer, Not a protected veteran answer, Gender, and Race locally on your computer. See the [app instructions](kula-app/README.md#import-resumes) for importing resumes and saving your profile.
+
 ## What the filter does
 
 - Hides matching job cards locally in the page. It does not use Jobright's account-level “hide job” action.
